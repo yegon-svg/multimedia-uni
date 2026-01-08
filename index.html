@@ -711,7 +711,7 @@
             <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
                 <video id="featuredVideo" muted loop playsinline poster="electric-1.jpeg"
                        style="width:220px;height:150px;object-fit:cover;border-radius:10px;box-shadow:0 8px 20px rgba(91,11,229,0.1);">
-                    <source src="e4e0652d-30f0-41c3-ad43-ba9c45626a27-watermark.mp4" type="video/mp4">
+                    <source src="customer.mp4" type="video/mp4">
                     
                 </video>
 
@@ -1046,6 +1046,12 @@
             localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
         }
         if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
+
+        // Logout button handler
+        const logoutBtn = document.getElementById('logoutBtn');
+        if (logoutBtn) {
+            logoutBtn.addEventListener('click', logout);
+        }
 
         // Init
         updateUserUI();
