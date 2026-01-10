@@ -119,6 +119,40 @@
         </div>
     </div>
 
+    <!-- Access denied UI (hidden by default) -->
+    <div id="accessDenied" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999;">
+        <div style="background:#fff; padding:20px; border-radius:8px; max-width:420px; margin:auto; box-shadow:0 6px 20px rgba(0,0,0,0.15); text-align:center;">
+            <h2 style="margin-top:0;color:#e55b0b">Access denied</h2>
+            <p class="small" id="accessDeniedMsg">Admins only. Redirecting to home…</p>
+            <div style="margin-top:12px;">
+                <a href="index.html" class="btn">Go to home</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast container and modals -->
+    <div id="toastContainer" style="position:fixed; top:16px; right:16px; z-index:10000; display:flex; flex-direction:column; gap:8px;"></div>
+
+    <!-- Confirm modal -->
+    <div id="confirmModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:10001;">
+        <div style="background:#fff; padding:18px; border-radius:8px; max-width:420px; margin:auto; box-shadow:0 6px 20px rgba(0,0,0,0.15); text-align:center;">
+            <p class="confirmMsg" style="margin:0 0 12px;"></p>
+            <div style="display:flex; gap:12px; justify-content:center;">
+                <button class="btn confirmYes">Confirm</button>
+                <button class="btn confirmNo" style="background:#eee;color:#333">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info modal -->
+    <div id="infoModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; z-index:10002;">
+        <div style="background:#fff; padding:18px; border-radius:8px; max-width:520px; margin:auto; box-shadow:0 6px 20px rgba(0,0,0,0.15); text-align:left;">
+            <h3 id="infoModalTitle" style="margin-top:0"></h3>
+            <div id="infoModalContent" style="margin-top:8px;"></div>
+            <div style="text-align:right; margin-top:12px;"><button class="btn" id="infoModalClose">Close</button></div>
+        </div>
+    </div>
+
 <script>
 /* Admin auth and dashboard using localStorage */
 
@@ -139,7 +173,134 @@ function isEmailAdmin(email){ const admins = getAdmins() || []; return admins.so
 function isCurrentUserAdmin(){ const curAdmin = getCurrentAdmin(); if (curAdmin) return true; const u = getCurrentUser(); if (!u) return false; return isEmailAdmin(u.email); }
 
 // Guard to protect admin actions
-function requireAdmin(){ const curAdmin = getCurrentAdmin(); const u = getCurrentUser(); if (curAdmin || u) return true; alert('Access denied: please login.'); window.location.href = 'index.html'; return false; }
+function requireAdmin(){ 
+    const curAdmin = getCurrentAdmin(); 
+    const u = getCurrentUser(); 
+    // allow if a current admin session is set
+    if (curAdmin) return true; 
+    // allow if the logged-in user is an admin
+    if (u && isEmailAdmin(u.email)) return true; 
+    showAccessDenied('Access denied: Admins only. Redirecting to home...'); 
+    return false; 
+} 
+
+function showAccessDenied(message){
+    const el = document.getElementById('accessDenied');
+    const msg = document.getElementById('accessDeniedMsg');
+    if (msg && message) msg.textContent = message;
+    if (el) el.style.display = 'flex';
+    // automatically redirect after a short delay so users can read the message
+    setTimeout(()=>{ window.location.href = 'index.html'; }, 3000);
+}
+
+// Simple toast/notification
+function showNotification(message, type='info'){
+    const c = document.getElementById('toastContainer');
+    if (!c) return alert(message); // fallback
+    const el = document.createElement('div');
+    el.textContent = message;
+    el.style.padding = '8px 12px';
+    el.style.borderRadius = '6px';
+    el.style.color = '#fff';
+    el.style.boxShadow = '0 4px 10px rgba(0,0,0,0.12)';
+    el.style.opacity = '1';
+    el.style.transition = 'opacity 0.3s';
+    if (type === 'success') el.style.background = '#2e7d32';
+    else if (type === 'error') el.style.background = '#c62828';
+    else if (type === 'warning') el.style.background = '#f9a825';
+    else el.style.background = '#1976d2';
+    c.appendChild(el);
+    setTimeout(()=>{ el.style.opacity='0'; setTimeout(()=> el.remove(), 300); }, 3000);
+}
+
+// Confirm dialog returns a Promise<boolean>
+function showConfirm(message){
+    return new Promise(resolve=>{
+        const cm = document.getElementById('confirmModal');
+        if (!cm) { resolve(confirm(message)); return; }
+        const msgEl = cm.querySelector('.confirmMsg');
+        msgEl.textContent = message;
+        cm.style.display = 'flex';
+        const yes = cm.querySelector('.confirmYes');
+        const no = cm.querySelector('.confirmNo');
+        function cleanup(){
+            yes.removeEventListener('click', yesHandler);
+            no.removeEventListener('click', noHandler);
+            cm.style.display = 'none';
+        }
+        function yesHandler(){ cleanup(); resolve(true); }
+        function noHandler(){ cleanup(); resolve(false); }
+        yes.addEventListener('click', yesHandler);
+        no.addEventListener('click', noHandler);
+    });
+}
+
+// Info modal for displaying content
+function showModal(title, htmlContent){
+    const m = document.getElementById('infoModal');
+    const t = document.getElementById('infoModalTitle');
+    const c = document.getElementById('infoModalContent');
+    if (!m) { alert(title + '\n' + htmlContent); return; }
+    t.textContent = title || '';
+    c.innerHTML = htmlContent || '';
+    m.style.display = 'flex';
+}
+document.getElementById('infoModalClose')?.addEventListener('click', ()=> {
+    const m = document.getElementById('infoModal'); if (m) m.style.display = 'none';
+});
+
+// Enforce admin policy: only the first two registered users may be admins
+// This version prompts the current admin for confirmation before revoking any extra admins.
+async function enforceAdminPolicy(){
+    const users = JSON.parse(localStorage.getItem('users')||'[]');
+    // Sort by createdAt if present, otherwise keep array order
+    users.sort((a,b)=>{
+        const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return ta - tb;
+    });
+    const allowed = users.slice(0,2).map(u => (u.email||'').toLowerCase());
+    let admins = JSON.parse(localStorage.getItem('admins')||'[]');
+    const toRevoke = admins.filter(a => !allowed.includes((a.email||'').toLowerCase()));
+
+    if (!toRevoke.length) return; // nothing to do
+
+    // Prefer current admin session, otherwise a logged-in admin user can confirm
+    const cur = getCurrentAdmin();
+    const user = getCurrentUser();
+    const userIsAdmin = user && isEmailAdmin(user.email);
+
+    // If there's no admin present to confirm, do not auto-revoke; notify instead
+    if (!cur && !userIsAdmin) {
+        showNotification('Admin policy violation detected. Sign in as an admin to review pending revocations.','warning');
+        return;
+    }
+
+    // Build message listing accounts to be revoked
+    const list = toRevoke.map(a=>`- ${a.email}`).join('\n');
+    const message = `The following admin accounts are NOT among the first two registered users and will be revoked if you confirm:\n\n${list}\n\nProceed to revoke them now?`;
+
+    const confirmed = await showConfirm(message);
+    if (!confirmed) {
+        showNotification('Revocation cancelled','info');
+        return;
+    }
+
+    const filtered = admins.filter(a => allowed.includes((a.email||'').toLowerCase()));
+    localStorage.setItem('admins', JSON.stringify(filtered));
+
+    // If current admin lost access, revoke and redirect
+    const current = getCurrentAdmin();
+    if (current && !filtered.find(a => (a.email||'').toLowerCase() === (current.email||'').toLowerCase())){
+        clearCurrentAdmin();
+        showNotification('Your admin access has been revoked','error');
+        setTimeout(()=>{ window.location.href = 'index.html'; }, 1500);
+        return;
+    }
+
+    showNotification('Selected admins revoked successfully','success');
+}
+
 
 /* seed sample bikes if none */
 function seedBikes(){
@@ -176,6 +337,8 @@ document.getElementById('adminRegisterForm').addEventListener('submit', (e)=>{
     if(admins.find(a=>a.email===email)){ document.getElementById('registerMessage').textContent='Email already registered.'; return; }
     admins.push({email, password: btoa(pw)});
     setAdmins(admins);
+    // Enforce policy in case this registration exceeds the allowed admins
+    enforceAdminPolicy().catch(e => console.warn('enforceAdminPolicy failed', e));
     document.getElementById('registerMessage').style.color='green';
     document.getElementById('registerMessage').textContent='Admin created. You can login.';
     setTimeout(()=>{ document.getElementById('registerMessage').textContent=''; }, 2000);
@@ -323,29 +486,35 @@ function renderAdminManagement(){
 function revokeAdmin(email){
     if(!requireAdmin()) return;
     let admins = JSON.parse(localStorage.getItem('admins')||'[]');
-    if (!admins.find(a=>a.email===email)) return alert('Admin not found');
-    if (admins.length <= 1) return alert('Cannot remove the last admin');
-    if (!confirm(`Revoke admin privileges for ${email}?`)) return;
-    admins = admins.filter(a=>a.email!==email);
-    localStorage.setItem('admins', JSON.stringify(admins));
-    const cur = getCurrentAdmin();
-    if (cur && cur.email === email) { clearCurrentAdmin(); showAuth(); alert('You revoked your own admin rights and were logged out.'); window.location.href = 'index.html'; return; }
-    renderAdminManagement();
-    loadDashboardData();
+    if (!admins.find(a=>a.email===email)) { showNotification('Admin not found','error'); return; }
+    if (admins.length <= 1) { showNotification('Cannot remove the last admin','error'); return; }
+    showConfirm(`Revoke admin privileges for ${email}?`).then(confirmed => {
+        if (!confirmed) return;
+        admins = admins.filter(a=>a.email!==email);
+        localStorage.setItem('admins', JSON.stringify(admins));
+        const cur = getCurrentAdmin();
+        if (cur && cur.email === email) { clearCurrentAdmin(); showAuth(); showNotification('You revoked your own admin rights and were logged out.','info'); setTimeout(()=>{ window.location.href = 'index.html'; }, 1500); return; }
+        renderAdminManagement();
+        loadDashboardData();
+        showNotification('Admin revoked','success');
+    });
 }
 
 function promoteUserToAdmin(email){
     if(!requireAdmin()) return;
     const admins = JSON.parse(localStorage.getItem('admins')||'[]');
-    if (admins.length >= 2) return alert('Admin limit reached');
+    if (admins.length >= 2) { showNotification('Admin limit reached','error'); return; }
     const users = JSON.parse(localStorage.getItem('users')||'[]');
     const u = users.find(x=>x.email===email);
-    if (!u) return alert('User not found');
-    if (admins.find(a=>a.email===u.email)) return alert('User is already an admin');
+    if (!u) { showNotification('User not found','error'); return; }
+    if (admins.find(a=>a.email===u.email)) { showNotification('User is already an admin','warning'); return; }
     admins.push({ email: u.email, password: u.password });
     localStorage.setItem('admins', JSON.stringify(admins));
+    // Enforce policy after promotion
+    enforceAdminPolicy().catch(e => console.warn('enforceAdminPolicy failed', e));
     renderAdminManagement();
     loadDashboardData();
+    showNotification('User promoted to admin','success');
 }
 
 /* ---------- user actions ---------- */
@@ -353,21 +522,25 @@ window.viewUser = function(email){
     if(!requireAdmin()) return;
     const users = JSON.parse(localStorage.getItem('users')||'[]');
     const u = users.find(x=>x.email===email);
-    if(!u) return alert('User not found');
-    alert(`Name: ${u.fullname}\nEmail: ${u.email}\nPhone: ${u.phone}`);
+    if(!u) { showNotification('User not found','error'); return; }
+    const html = `<p><strong>Name:</strong> ${u.fullname||''}</p><p><strong>Email:</strong> ${u.email||''}</p><p><strong>Phone:</strong> ${u.phone||''}</p>`;
+    showModal('User details', html);
 };
 
 window.deleteUser = function(email){
     if(!requireAdmin()) return;
-    if(!confirm('Delete user and their rentals?')) return;
-    let users = JSON.parse(localStorage.getItem('users')||'[]');
-    users = users.filter(u=>u.email!==email);
-    localStorage.setItem('users', JSON.stringify(users));
-    // remove rentals by user
-    let rentals = JSON.parse(localStorage.getItem('rentals')||'[]');
-    rentals = rentals.filter(r=> r.userEmail !== email);
-    localStorage.setItem('rentals', JSON.stringify(rentals));
-    loadDashboardData();
+    showConfirm('Delete user and their rentals?').then(confirmed => {
+        if(!confirmed) return;
+        let users = JSON.parse(localStorage.getItem('users')||'[]');
+        users = users.filter(u=>u.email!==email);
+        localStorage.setItem('users', JSON.stringify(users));
+        // remove rentals by user
+        let rentals = JSON.parse(localStorage.getItem('rentals')||'[]');
+        rentals = rentals.filter(r=> r.userEmail !== email);
+        localStorage.setItem('rentals', JSON.stringify(rentals));
+        loadDashboardData();
+        showNotification('User deleted','success');
+    });
 };
 
 // Bike actions (single guarded implementation)
@@ -385,11 +558,14 @@ window.toggleBike = function(id){
 
 window.deleteBike = function(id){
     if(!requireAdmin()) return;
-    if(!confirm('Delete this bike?')) return;
-    let bikes = JSON.parse(localStorage.getItem('bikes')||'[]');
-    bikes = bikes.filter(b=>b.id!==id);
-    localStorage.setItem('bikes', JSON.stringify(bikes));
-    loadDashboardData();
+    showConfirm('Delete this bike?').then(confirmed => {
+        if(!confirmed) return;
+        let bikes = JSON.parse(localStorage.getItem('bikes')||'[]');
+        bikes = bikes.filter(b=>b.id!==id);
+        localStorage.setItem('bikes', JSON.stringify(bikes));
+        loadDashboardData();
+        showNotification('Bike deleted','success');
+    });
 };
 
 window.editBike = function(id){
@@ -485,16 +661,17 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 /* ---------- init on load ---------- */
-window.addEventListener('load', ()=>{
+window.addEventListener('load', async ()=>{
+    // Ensure admin policy is enforced as early as possible (may prompt for confirmation)
+    try { await enforceAdminPolicy(); } catch (e) { console.warn('enforceAdminPolicy failed', e); }
+
     const current = getCurrentAdmin();
     const user = getCurrentUser();
     const userIsAdmin = user && isEmailAdmin(user.email);
 
-    // Allow any logged-in user to access admin portal (full access)
-    // If no user is logged in at all, redirect to index
-    if (!user && !current) {
-        alert('Please login to access the admin portal.');
-        window.location.href = 'index.html';
+    // Only allow access for admins (either a current admin session or a logged-in user who is an admin)
+    if (!current && (!user || !userIsAdmin)) {
+        showAccessDenied('Access denied: Admins only. Redirecting to home...');
         return;
     }
 
@@ -503,8 +680,12 @@ window.addEventListener('load', ()=>{
         setCurrentAdmin({ email: user.email });
     }
 
-    if(current || userIsAdmin) showDashboard(); else showAuth();
+    showDashboard();
 });
 </script>
 </body>
 </html>
+
+      
+
+
