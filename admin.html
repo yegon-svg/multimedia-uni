@@ -119,16 +119,7 @@
         </div>
     </div>
 
-    <!-- Access denied UI (hidden by default) -->
-    <div id="accessDenied" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999;">
-        <div style="background:#fff; padding:20px; border-radius:8px; max-width:420px; margin:auto; box-shadow:0 6px 20px rgba(0,0,0,0.15); text-align:center;">
-            <h2 style="margin-top:0;color:#e55b0b">Access denied</h2>
-            <p class="small" id="accessDeniedMsg">Admins only. Redirecting to home…</p>
-            <div style="margin-top:12px;">
-                <a href="index.html" class="btn">Go to home</a>
-            </div>
-        </div>
-    </div>
+    <!-- Access-denied overlay removed in favor of non-blocking notifications so non-admins can view the page. -->
 
     <!-- Toast container and modals -->
     <div id="toastContainer" style="position:fixed; top:16px; right:16px; z-index:10000; display:flex; flex-direction:column; gap:8px;"></div>
@@ -166,6 +157,10 @@ function clearCurrentAdmin(){ localStorage.removeItem('currentAdmin'); }
 // Helper to get logged-in regular user (if any)
 function getCurrentUser(){ return JSON.parse(localStorage.getItem('currentUser')||'null'); }
 
+// Preserved initial admins helpers
+function getInitialAdmins(){ return JSON.parse(localStorage.getItem('initialAdmins')||'[]'); }
+function resetInitialAdmins(){ localStorage.removeItem('initialAdmins'); }
+
 // Check whether a given email is an admin
 function isEmailAdmin(email){ const admins = getAdmins() || []; return admins.some(a => (a.email||'').toLowerCase() === (email||'').toLowerCase()); }
 
@@ -180,18 +175,15 @@ function requireAdmin(){
     if (curAdmin) return true; 
     // allow if the logged-in user is an admin
     if (u && isEmailAdmin(u.email)) return true; 
-    showAccessDenied('Access denied: Admins only. Redirecting to home...'); 
+    // Notify and prevent the action (do not block the entire page)
+    showNotification('Admin action requires admin privileges','error'); 
     return false; 
 } 
 
 function showAccessDenied(message){
-    const el = document.getElementById('accessDenied');
-    const msg = document.getElementById('accessDeniedMsg');
-    if (msg && message) msg.textContent = message;
-    if (el) el.style.display = 'flex';
-    // automatically redirect after a short delay so users can read the message
-    setTimeout(()=>{ window.location.href = 'index.html'; }, 3000);
-}
+    // Non-blocking: show a warning notification instead of redirecting or blocking the UI
+    showNotification(message || 'Admin access required','warning');
+} 
 
 // Simple toast/notification
 function showNotification(message, type='info'){
@@ -249,8 +241,8 @@ document.getElementById('infoModalClose')?.addEventListener('click', ()=> {
     const m = document.getElementById('infoModal'); if (m) m.style.display = 'none';
 });
 
-// Enforce admin policy: only the first two registered users may be admins
-// This version prompts the current admin for confirmation before revoking any extra admins.
+// Enforce admin policy: only the first two registered users OR the initially registered admins may be admins
+// This version preserves initially registered admins (saved to localStorage.initialAdmins) and prompts the current admin for confirmation before revoking any extra admins.
 async function enforceAdminPolicy(){
     const users = JSON.parse(localStorage.getItem('users')||'[]');
     // Sort by createdAt if present, otherwise keep array order
@@ -260,8 +252,21 @@ async function enforceAdminPolicy(){
         return ta - tb;
     });
     const allowed = users.slice(0,2).map(u => (u.email||'').toLowerCase());
+
     let admins = JSON.parse(localStorage.getItem('admins')||'[]');
-    const toRevoke = admins.filter(a => !allowed.includes((a.email||'').toLowerCase()));
+
+    // Initialize preserved initial admins if not present
+    let initialAdmins = JSON.parse(localStorage.getItem('initialAdmins')||'[]').map(e=> (e||'').toLowerCase());
+    if (!initialAdmins.length) {
+        initialAdmins = admins.map(a => (a.email||'').toLowerCase());
+        if (initialAdmins.length) localStorage.setItem('initialAdmins', JSON.stringify(initialAdmins));
+    }
+
+    // Determine which admins would be revoked (not in allowed set and not an initial admin)
+    const toRevoke = admins.filter(a => {
+        const e = (a.email||'').toLowerCase();
+        return !(allowed.includes(e) || initialAdmins.includes(e));
+    });
 
     if (!toRevoke.length) return; // nothing to do
 
@@ -278,7 +283,7 @@ async function enforceAdminPolicy(){
 
     // Build message listing accounts to be revoked
     const list = toRevoke.map(a=>`- ${a.email}`).join('\n');
-    const message = `The following admin accounts are NOT among the first two registered users and will be revoked if you confirm:\n\n${list}\n\nProceed to revoke them now?`;
+    const message = `The following admin accounts are neither initial admins nor among the first two registered users and will be revoked if you confirm:\n\n${list}\n\nProceed to revoke them now?`;
 
     const confirmed = await showConfirm(message);
     if (!confirmed) {
@@ -286,7 +291,10 @@ async function enforceAdminPolicy(){
         return;
     }
 
-    const filtered = admins.filter(a => allowed.includes((a.email||'').toLowerCase()));
+    const filtered = admins.filter(a => {
+        const e = (a.email||'').toLowerCase();
+        return (allowed.includes(e) || initialAdmins.includes(e));
+    });
     localStorage.setItem('admins', JSON.stringify(filtered));
 
     // If current admin lost access, revoke and redirect
@@ -330,7 +338,7 @@ seedBikes();
 /* ---------- AUTH HANDLERS ---------- */
 document.getElementById('adminRegisterForm').addEventListener('submit', (e)=>{
     e.preventDefault();
-    const email = document.getElementById('regEmail').value.trim();
+    const email = document.getElementById('regEmail').value.trim().toLowerCase();
     const pw = document.getElementById('regPassword').value;
     const admins = getAdmins();
     if (admins && admins.length >= 2) { document.getElementById('registerMessage').style.color = 'red'; document.getElementById('registerMessage').textContent = 'Admin limit reached (max 2).'; return; }
@@ -346,7 +354,7 @@ document.getElementById('adminRegisterForm').addEventListener('submit', (e)=>{
 
 document.getElementById('adminLoginForm').addEventListener('submit', (e)=>{
     e.preventDefault();
-    const email = document.getElementById('loginEmail').value.trim();
+    const email = document.getElementById('loginEmail').value.trim().toLowerCase();
     const pw = document.getElementById('loginPassword').value;
     const admin = getAdmins().find(a=>a.email===email);
     let storedPw;
@@ -480,6 +488,18 @@ function renderAdminManagement(){
     if (promoteBtn) promoteBtn.addEventListener('click', ()=>{
         const sel = document.getElementById('promoteSelect');
         if (sel && sel.value) promoteUserToAdmin(sel.value);
+    });
+
+    // Wire up preserved initial admins area
+    const resetBtn = document.getElementById('resetInitialAdminsBtn');
+    if (resetBtn) resetBtn.addEventListener('click', async ()=>{
+        const confirmed = await showConfirm('Reset preserved initial admins? This will allow policy enforcement to consider them for revocation. Continue?');
+        if (!confirmed) return;
+        resetInitialAdmins();
+        showNotification('Preserved initial admins reset','success');
+        // Re-run enforcement to apply potential revocations (enforceAdminPolicy prompts for confirmation if needed)
+        try { await enforceAdminPolicy(); } catch (e) { console.warn('enforceAdminPolicy failed', e); }
+        renderAdminManagement();
     });
 }
 
@@ -669,23 +689,24 @@ window.addEventListener('load', async ()=>{
     const user = getCurrentUser();
     const userIsAdmin = user && isEmailAdmin(user.email);
 
-    // Only allow access for admins (either a current admin session or a logged-in user who is an admin)
-    if (!current && (!user || !userIsAdmin)) {
-        showAccessDenied('Access denied: Admins only. Redirecting to home...');
+    // If logged-in user is an admin but not yet set as currentAdmin, set it for convenience and show dashboard
+    if (userIsAdmin && !current) {
+        setCurrentAdmin({ email: user.email });
+        showDashboard();
         return;
     }
 
-    // If logged-in user is an admin but not yet set as currentAdmin, set it for convenience
-    if (userIsAdmin && !current) {
-        setCurrentAdmin({ email: user.email });
-    }
+    // If there's an existing admin session, show the dashboard
+    if (current) { showDashboard(); return; }
 
-    showDashboard();
+    // No admin signed in: keep the auth area visible so admins can log in, but allow others to view the page
+    showAuth();
 });
 </script>
 </body>
 </html>
 
       
+
 
 
