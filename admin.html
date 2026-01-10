@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<DO!CTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
@@ -61,6 +61,12 @@
 
         <!-- DASHBOARD -->
         <div id="dashboard" style="display:none; margin-top:18px;">
+            <!-- Admin Management Panel -->
+            <div id="adminManagement" style="margin-bottom:16px; padding:12px; border:1px solid #f0f0f5; border-radius:8px; background:#fafafa;">
+                <h2 style="margin:0 0 8px 0">Admins</h2>
+                <div id="adminListContainer" class="small">Loading admins...</div>
+            </div>
+
             <div style="display:flex; gap:20px; align-items:flex-start;">
                 <div class="col">
                     <h2>Registered Users</h2>
@@ -73,82 +79,28 @@
                 <div class="col">
                     <h2>Bicycles</h2>
 
-                
+                    <!-- add bike form (updated to support image file upload + preview) -->
+                    <form id="addBikeForm" class="row" enctype="multipart/form-data">
+                        <input id="bikeName" placeholder="Name" required>
+                        <input id="bikeType" placeholder="Type (e.g., Road)" required>
+                        <input id="bikePrice" type="number" placeholder="Price/day" required>
+                        
+                        <!-- File input for image -->
+                        <input id="bikeImageFile" type="file" accept="image/*" required>
+                        <!-- Hidden input will hold the base64/dataURL to store in localStorage -->
+                        <input id="bikeImage" type="hidden" value="">
+                        <!-- Small preview -->
+                        <div id="bikeImagePreview" style="width:60px; height:40px; border-radius:6px; overflow:hidden; display:inline-block; vertical-align:middle; background:#f0f0f0;">
+                            <!-- preview inserted here -->
+                        </div>
 
-    <!-- add bike (updated to support image file upload + preview) -->
-    <form id="addBikeForm" class="row" enctype="multipart/form-data">
-        <input id="bikeName" placeholder="Name" required>
-        <input id="bikeType" placeholder="Type (e.g., Road)" required>
-        <input id="bikePrice" type="number" placeholder="Price/day" required>
-        
-        <!-- File input for image -->
-        <input id="bikeImageFile" type="file" accept="image/*" required>
-        <!-- Hidden input will hold the base64/dataURL to store in localStorage -->
-        <input id="bikeImage" type="hidden" value="">
-        <!-- Small preview -->
-        <div id="bikeImagePreview" style="width:60px; height:40px; border-radius:6px; overflow:hidden; display:inline-block; vertical-align:middle; background:#f0f0f0;">
-            <!-- preview inserted here -->
-        </div>
-
-        <select id="bikeAvailable">
-            <option value="true">Available</option>
-            <option value="false">Not available</option>
-        </select>
-        <button class="btn" type="submit">Add Bike</button>
-    </form>
-<script>
-// --- image upload preview and add-bike handler (replace existing addBikeForm handler) ---
-
-// read file and set hidden input + preview
-const bikeImageFileInput = document.getElementById('bikeImageFile');
-const bikeImageHidden = document.getElementById('bikeImage');
-const bikeImagePreview = document.getElementById('bikeImagePreview');
-
-bikeImageFileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) {
-        bikeImageHidden.value = '';
-        bikeImagePreview.innerHTML = '';
-        return;
-    }
-    const reader = new FileReader();
-    reader.onload = function(evt) {
-        // store base64/data URL
-        bikeImageHidden.value = evt.target.result;
-        // show preview
-        bikeImagePreview.innerHTML = `<img src="${evt.target.result}" style="width:100%; height:100%; object-fit:cover;">`;
-    };
-    reader.readAsDataURL(file);
-});
-
-// Add bike (stores image data URL)
-document.getElementById('addBikeForm').addEventListener('submit', (e)=>{
-    e.preventDefault();
-    const name = document.getElementById('bikeName').value.trim();
-    const type = document.getElementById('bikeType').value.trim();
-    const price = Number(document.getElementById('bikePrice').value);
-    // image may be a data URL stored in hidden input
-    const image = document.getElementById('bikeImage').value.trim();
-    const available = document.getElementById('bikeAvail').value === 'true';
-
-    if (!image) {
-        alert('Please select an image for the bike.');
-        return;
-    }
-
-    const bikes = JSON.parse(localStorage.getItem('bikes')||'[]');
-    const id = bikes.length ? Math.max(...bikes.map(b=>b.id))+1 : 1;
-    bikes.push({id, name, type, price, image, available});
-    localStorage.setItem('bikes', JSON.stringify(bikes));
-    e.target.reset();
-    bikeImageHidden.value = '';
-    bikeImagePreview.innerHTML = '';
-    loadDashboardData(); // refresh table (ensure function exists)
-});
-</script>
-
-                    <!-- add bike -->
-                    
+                        <select id="bikeAvail">
+                            <option value="true">Available</option>
+                            <option value="false">Not available</option>
+                        </select>
+                        <button class="btn" type="submit">Add Bike</button>
+                    </form>
+                    <p id="addBikeMessage" class="message" style="margin-top:8px; display:none;"></p>
 
                     <table id="bikesTable">
                         <thead><tr><th>Photo</th><th>Name</th><th>Type</th><th>Price</th><th>Available</th><th>Actions</th></tr></thead>
@@ -177,6 +129,18 @@ function getCurrentAdmin(){ return JSON.parse(localStorage.getItem('currentAdmin
 function setCurrentAdmin(a){ localStorage.setItem('currentAdmin', JSON.stringify(a)); }
 function clearCurrentAdmin(){ localStorage.removeItem('currentAdmin'); }
 
+// Helper to get logged-in regular user (if any)
+function getCurrentUser(){ return JSON.parse(localStorage.getItem('currentUser')||'null'); }
+
+// Check whether a given email is an admin
+function isEmailAdmin(email){ const admins = getAdmins() || []; return admins.some(a => (a.email||'').toLowerCase() === (email||'').toLowerCase()); }
+
+// Quick check whether current user is an admin (either via currentAdmin or logged-in user email)
+function isCurrentUserAdmin(){ const curAdmin = getCurrentAdmin(); if (curAdmin) return true; const u = getCurrentUser(); if (!u) return false; return isEmailAdmin(u.email); }
+
+// Guard to protect admin actions
+function requireAdmin(){ const curAdmin = getCurrentAdmin(); const u = getCurrentUser(); if (curAdmin || u) return true; alert('Access denied: please login.'); window.location.href = 'index.html'; return false; }
+
 /* seed sample bikes if none */
 function seedBikes(){
     const existing = JSON.parse(localStorage.getItem('bikes')||'[]');
@@ -191,12 +155,24 @@ function seedBikes(){
 }
 seedBikes();
 
+// Disable admin registration form if admin limit (2) is reached
+(function() {
+    const form = document.getElementById('adminRegisterForm');
+    const msg = document.getElementById('registerMessage');
+    const admins = getAdmins();
+    if (admins && admins.length >= 2) {
+        if (form) Array.from(form.elements).forEach(el => el.disabled = true);
+        if (msg) { msg.style.color = 'red'; msg.textContent = 'Admin registrations are closed (max 2 admins).'; }
+    }
+})();
+
 /* ---------- AUTH HANDLERS ---------- */
 document.getElementById('adminRegisterForm').addEventListener('submit', (e)=>{
     e.preventDefault();
     const email = document.getElementById('regEmail').value.trim();
     const pw = document.getElementById('regPassword').value;
     const admins = getAdmins();
+    if (admins && admins.length >= 2) { document.getElementById('registerMessage').style.color = 'red'; document.getElementById('registerMessage').textContent = 'Admin limit reached (max 2).'; return; }
     if(admins.find(a=>a.email===email)){ document.getElementById('registerMessage').textContent='Email already registered.'; return; }
     admins.push({email, password: btoa(pw)});
     setAdmins(admins);
@@ -210,7 +186,9 @@ document.getElementById('adminLoginForm').addEventListener('submit', (e)=>{
     const email = document.getElementById('loginEmail').value.trim();
     const pw = document.getElementById('loginPassword').value;
     const admin = getAdmins().find(a=>a.email===email);
-    if(!admin || atob(admin.password)!==pw){ document.getElementById('loginMessage').textContent='Invalid credentials.'; return; }
+    let storedPw;
+    try { storedPw = admin && atob(admin.password); } catch (err) { storedPw = admin && admin.password; }
+    if(!admin || storedPw !== pw){ document.getElementById('loginMessage').textContent='Invalid credentials.'; return; }
     setCurrentAdmin({email});
     showDashboard();
 });
@@ -294,10 +272,85 @@ function loadDashboardData(){
             <td>${r.mobile||''}</td>
         </tr>
     `).join('') || '<tr><td colspan="7" class="small">No rentals yet</td></tr>';
+
+    // refresh admin management panel
+    try { renderAdminManagement(); } catch (e) { console.warn('renderAdminManagement failed', e); }
+}
+
+/* ---------- Admin management (UI & actions) ---------- */
+
+function renderAdminManagement(){
+    const container = document.getElementById('adminListContainer');
+    if (!container) return;
+    const admins = JSON.parse(localStorage.getItem('admins')||'[]');
+    let html = '<table><thead><tr><th>Email</th><th style="width:180px">Actions</th></tr></thead><tbody>';
+    if (admins.length) {
+        html += admins.map(a => `
+            <tr>
+                <td>${a.email}</td>
+                <td>
+                    <button class="btn" onclick="revokeAdmin('${a.email}')">Revoke</button>
+                </td>
+            </tr>
+        `).join('');
+    } else {
+        html += '<tr><td colspan="2" class="small">No admins defined</td></tr>';
+    }
+    html += '</tbody></table>';
+
+    // Promote control
+    const users = JSON.parse(localStorage.getItem('users')||'[]');
+    const candidates = users.filter(u => !admins.some(ad => (ad.email||'').toLowerCase() === (u.email||'').toLowerCase()));
+    if (admins.length < 2) {
+        if (candidates.length) {
+            html += `<div style="margin-top:8px">Promote user to admin: <select id="promoteSelect">${candidates.map(u=>`<option value="${u.email}">${u.fullname||u.email}</option>`).join('')}</select> <button class="btn" id="promoteBtn">Promote</button></div>`;
+        } else {
+            html += '<div style="margin-top:8px" class="small"><em>No eligible users to promote</em></div>';
+        }
+    } else {
+        html += '<div style="margin-top:8px" class="small"><em>Admin limit reached (max 2)</em></div>';
+    }
+
+    container.innerHTML = html;
+
+    const promoteBtn = document.getElementById('promoteBtn');
+    if (promoteBtn) promoteBtn.addEventListener('click', ()=>{
+        const sel = document.getElementById('promoteSelect');
+        if (sel && sel.value) promoteUserToAdmin(sel.value);
+    });
+}
+
+function revokeAdmin(email){
+    if(!requireAdmin()) return;
+    let admins = JSON.parse(localStorage.getItem('admins')||'[]');
+    if (!admins.find(a=>a.email===email)) return alert('Admin not found');
+    if (admins.length <= 1) return alert('Cannot remove the last admin');
+    if (!confirm(`Revoke admin privileges for ${email}?`)) return;
+    admins = admins.filter(a=>a.email!==email);
+    localStorage.setItem('admins', JSON.stringify(admins));
+    const cur = getCurrentAdmin();
+    if (cur && cur.email === email) { clearCurrentAdmin(); showAuth(); alert('You revoked your own admin rights and were logged out.'); window.location.href = 'index.html'; return; }
+    renderAdminManagement();
+    loadDashboardData();
+}
+
+function promoteUserToAdmin(email){
+    if(!requireAdmin()) return;
+    const admins = JSON.parse(localStorage.getItem('admins')||'[]');
+    if (admins.length >= 2) return alert('Admin limit reached');
+    const users = JSON.parse(localStorage.getItem('users')||'[]');
+    const u = users.find(x=>x.email===email);
+    if (!u) return alert('User not found');
+    if (admins.find(a=>a.email===u.email)) return alert('User is already an admin');
+    admins.push({ email: u.email, password: u.password });
+    localStorage.setItem('admins', JSON.stringify(admins));
+    renderAdminManagement();
+    loadDashboardData();
 }
 
 /* ---------- user actions ---------- */
 window.viewUser = function(email){
+    if(!requireAdmin()) return;
     const users = JSON.parse(localStorage.getItem('users')||'[]');
     const u = users.find(x=>x.email===email);
     if(!u) return alert('User not found');
@@ -305,6 +358,7 @@ window.viewUser = function(email){
 };
 
 window.deleteUser = function(email){
+    if(!requireAdmin()) return;
     if(!confirm('Delete user and their rentals?')) return;
     let users = JSON.parse(localStorage.getItem('users')||'[]');
     users = users.filter(u=>u.email!==email);
@@ -316,23 +370,11 @@ window.deleteUser = function(email){
     loadDashboardData();
 };
 
-/* ---------- bike actions ---------- */
-document.getElementById('addBikeForm').addEventListener('submit', (e)=>{
-    e.preventDefault();
-    const name = document.getElementById('bikeName').value.trim();
-    const type = document.getElementById('bikeType').value.trim();
-    const price = Number(document.getElementById('bikePrice').value);
-    const image = document.getElementById('bikeImage').value.trim();
-    const available = document.getElementById('bikeAvail').value === 'true';
-    const bikes = JSON.parse(localStorage.getItem('bikes')||'[]');
-    const id = bikes.length ? Math.max(...bikes.map(b=>b.id))+1 : 1;
-    bikes.push({id, name, type, price, image, available});
-    localStorage.setItem('bikes', JSON.stringify(bikes));
-    e.target.reset();
-    loadDashboardData();
-});
-
+// Bike actions (single guarded implementation)
+// Uses the image input (base64/data URL) set by the file-reader above
+// Add bike is handled above (image-upload handler) so we only include toggle/delete/edit here
 window.toggleBike = function(id){
+    if(!requireAdmin()) return;
     const bikes = JSON.parse(localStorage.getItem('bikes')||'[]');
     const idx = bikes.findIndex(b=>b.id===id);
     if(idx===-1) return;
@@ -342,6 +384,7 @@ window.toggleBike = function(id){
 };
 
 window.deleteBike = function(id){
+    if(!requireAdmin()) return;
     if(!confirm('Delete this bike?')) return;
     let bikes = JSON.parse(localStorage.getItem('bikes')||'[]');
     bikes = bikes.filter(b=>b.id!==id);
@@ -350,6 +393,7 @@ window.deleteBike = function(id){
 };
 
 window.editBike = function(id){
+    if(!requireAdmin()) return;
     const bikes = JSON.parse(localStorage.getItem('bikes')||'[]');
     const bike = bikes.find(b=>b.id===id);
     if(!bike) return;
@@ -363,10 +407,103 @@ window.editBike = function(id){
     loadDashboardData();
 };
 
+/* ---------- image upload preview and bike form handler ---------- */
+document.addEventListener('DOMContentLoaded', function() {
+    const bikeImageFileInput = document.getElementById('bikeImageFile');
+    const bikeImageHidden = document.getElementById('bikeImage');
+    const bikeImagePreview = document.getElementById('bikeImagePreview');
+    const addBikeForm = document.getElementById('addBikeForm');
+    const addBikeMessage = document.getElementById('addBikeMessage');
+
+    // read file and set hidden input + preview
+    bikeImageFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) {
+            bikeImageHidden.value = '';
+            bikeImagePreview.innerHTML = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            // store base64/data URL
+            bikeImageHidden.value = evt.target.result;
+            // show preview
+            bikeImagePreview.innerHTML = `<img src="${evt.target.result}" style="width:100%; height:100%; object-fit:cover;">`;
+        };
+        reader.readAsDataURL(file);
+    });
+
+    // Add bike (stores image data URL)
+    addBikeForm.addEventListener('submit', (e)=>{
+        e.preventDefault();
+        if (!requireAdmin()) return;
+        const name = document.getElementById('bikeName').value.trim();
+        const type = document.getElementById('bikeType').value.trim();
+        const price = Number(document.getElementById('bikePrice').value);
+        // image may be a data URL stored in hidden input
+        const image = document.getElementById('bikeImage').value.trim();
+        const available = document.getElementById('bikeAvail').value === 'true';
+
+        if (!name || !type || !price) {
+            addBikeMessage.style.display = 'block';
+            addBikeMessage.style.color = 'red';
+            addBikeMessage.textContent = 'Please fill in all fields.';
+            return;
+        }
+
+        if (!image) {
+            addBikeMessage.style.display = 'block';
+            addBikeMessage.style.color = 'red';
+            addBikeMessage.textContent = 'Please select an image for the bike.';
+            return;
+        }
+
+        const bikes = JSON.parse(localStorage.getItem('bikes')||'[]');
+        const id = bikes.length ? Math.max(...bikes.map(b=>b.id))+1 : 1;
+        bikes.push({id, name, type, price, image, available});
+        localStorage.setItem('bikes', JSON.stringify(bikes));
+        
+        // Show success message
+        addBikeMessage.style.display = 'block';
+        addBikeMessage.style.color = 'green';
+        addBikeMessage.textContent = `Bike "${name}" added successfully!`;
+        
+        // Reset form
+        addBikeForm.reset();
+        bikeImageHidden.value = '';
+        bikeImagePreview.innerHTML = '';
+        
+        // Reload dashboard
+        loadDashboardData();
+        
+        // Clear message after 2 seconds
+        setTimeout(() => {
+            addBikeMessage.style.display = 'none';
+            addBikeMessage.textContent = '';
+        }, 2000);
+    });
+});
+
 /* ---------- init on load ---------- */
 window.addEventListener('load', ()=>{
     const current = getCurrentAdmin();
-    if(current) showDashboard(); else showAuth();
+    const user = getCurrentUser();
+    const userIsAdmin = user && isEmailAdmin(user.email);
+
+    // Allow any logged-in user to access admin portal (full access)
+    // If no user is logged in at all, redirect to index
+    if (!user && !current) {
+        alert('Please login to access the admin portal.');
+        window.location.href = 'index.html';
+        return;
+    }
+
+    // If logged-in user is an admin but not yet set as currentAdmin, set it for convenience
+    if (userIsAdmin && !current) {
+        setCurrentAdmin({ email: user.email });
+    }
+
+    if(current || userIsAdmin) showDashboard(); else showAuth();
 });
 </script>
 </body>
