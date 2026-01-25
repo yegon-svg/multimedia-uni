@@ -1,9 +1,5 @@
-
 (function () {
   'use strict';
-
-  // Backend API URL - change this if running backend on different server
-  const API_URL = 'http://localhost:3001/api';
 
   /* ---------- Storage helpers ---------- */
   const storage = {
@@ -14,33 +10,17 @@
     remove(key) { localStorage.removeItem(key); }
   };
 
-  /* ---------- API Fetch Helpers ---------- */
-  async function apiCall(endpoint, options = {}) {
-    try {
-      const url = `${API_URL}${endpoint}`;
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers
-        }
-      });
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || `API Error: ${response.status}`);
-      }
-      
-      return await response.json();
-    } catch (error) {
-      console.error(`API Call Error (${endpoint}):`, error);
-      throw error;
-    }
-  }
-
   /* ---------- Seed sample data if missing ---------- */
   function seedIfNeeded() {
+    if (!storage.get('bikes')) {
+      storage.set('bikes', [
+        { id: 1, name: 'Mountain Bike Pro', type: 'Mountain', price: 50, image: 'mountain-bike-1.jpeg', available: true, description: 'Perfect for off-road trails' },
+        { id: 2, name: 'Road Bike Speed', type: 'Road', price: 80, image: 'road-bike-1.jpeg', available: true, description: 'Fast and lightweight for campus' },
+        { id: 3, name: 'Electric Bike Plus', type: 'E-Bike', price: 150, image: 'electric-1.jpeg', available: true, description: 'Eco-friendly with long battery' }
+      ]);
+    }
     if (!storage.get('users')) storage.set('users', []);
+    if (!storage.get('admins')) storage.set('admins', []);
     if (!storage.get('rentals')) storage.set('rentals', []);
     if (!storage.get('transactions')) storage.set('transactions', []);
     if (!storage.get('messages')) storage.set('messages', []);
@@ -65,20 +45,18 @@
 
   function signupUser({ fullname, email, password, phone }) {
     const users = storage.get('users', []);
-    const normalizedEmail = (email||'').toString().trim().toLowerCase();
     if (!fullname || fullname.length < 3) throw new Error('Full name must be at least 3 characters');
-    if (!validateEmail(normalizedEmail)) throw new Error('Invalid email format');
+    if (!validateEmail(email)) throw new Error('Invalid email format');
     if (password.length < 6) throw new Error('Password must be at least 6 characters');
-    // phone is optional; validate only if provided
-    if (phone && !validatePhone(phone)) throw new Error('Invalid phone format (use format: 0712345678)');
-    if (users.find(u => (u.email||'').toString().trim().toLowerCase() === normalizedEmail)) throw new Error('Email already registered');
+    if (!validatePhone(phone)) throw new Error('Invalid phone format (use format: 0712345678)');
+    if (users.find(u => u.email === email)) throw new Error('Email already registered');
 
     const user = {
       id: Date.now(),
       fullname,
-      email: normalizedEmail,
+      email,
       password: btoa(password),
-      phone: phone || '',
+      phone,
       profilePhoto: null,
       createdAt: new Date().toISOString(),
       rentals: 0
@@ -91,8 +69,7 @@
 
   function loginUser({ email, password }) {
     const users = storage.get('users', []);
-    const normalizedEmail = (email||'').toString().trim().toLowerCase();
-    const u = users.find(x => (x.email||'').toString().trim().toLowerCase() === normalizedEmail);
+    const u = users.find(x => x.email === email);
     if (!u) throw new Error('Invalid email or password');
 
     // Support both base64-encoded passwords and plain stored passwords
@@ -104,85 +81,62 @@
     return u;
   }
 
-  /* ---------- Admin auth (using backend API) ---------- */
+  /* ---------- Admin auth ---------- */
   function getAdmins() { return storage.get('admins', []); }
   function setAdmins(a) { storage.set('admins', a); }
   function getCurrentAdmin() { return storage.get('currentAdmin', null); }
   function setCurrentAdmin(a) { storage.set('currentAdmin', a); }
   function clearCurrentAdmin() { storage.remove('currentAdmin'); }
 
-  async function registerAdmin(email, password) {
-    try {
-      const admin = await apiCall('/admins/register', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      });
-      return admin;
-    } catch (error) {
-      throw error;
-    }
+  function registerAdmin(email, password) {
+    const admins = getAdmins();
+    // Enforce maximum of two admins
+    if (admins && admins.length >= 2) throw new Error('Admin limit reached. Only two admins allowed.');
+    if (!validateEmail(email)) throw new Error('Invalid email format');
+    if (password.length < 6) throw new Error('Password must be at least 6 characters');
+    if (admins.find(a => a.email === email)) throw new Error('Admin already exists');
+    admins.push({ id: Date.now(), email, password: btoa(password), createdAt: new Date().toISOString() });
+    setAdmins(admins);
+    return true;
   }
 
-  async function loginAdmin(email, password) {
-    try {
-      const admin = await apiCall('/admins/login', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      });
-      return admin;
-    } catch (error) {
-      throw error;
-    }
+  function loginAdmin(email, password) {
+    const admin = getAdmins().find(a => a.email === email);
+    if (!admin || atob(admin.password) !== password) throw new Error('Invalid admin credentials');
+    setCurrentAdmin({ id: admin.id, email: admin.email });
+    return admin;
   }
 
-  /* ---------- Bikes management (using backend API) ---------- */
-  let bikesCache = [];
-  
-  async function getBikes() { 
-    try {
-      bikesCache = await apiCall('/bikes');
-      return bikesCache;
-    } catch (error) {
-      console.warn('Failed to fetch bikes from backend:', error);
-      return bikesCache;
-    }
-  }
-  
-  async function setBikes(list) { 
-    bikesCache = list;
-  }
+  /* ---------- Bikes management ---------- */
+  function getBikes() { return storage.get('bikes', []); }
+  function setBikes(list) { storage.set('bikes', list); }
 
-  async function addBike(bike) {
+  function addBike(bike) {
+    const bikes = getBikes();
     if (!bike.name || !bike.type) throw new Error('Bike name and type required');
     if (bike.price < 0) throw new Error('Invalid price');
-    
-    const newBike = await apiCall('/bikes', {
-      method: 'POST',
-      body: JSON.stringify(bike)
-    });
-    
-    bikesCache.push(newBike);
-    return newBike;
-  }
-
-  async function updateBike(updated) {
-    const bike = await apiCall(`/bikes/${updated.id}`, {
-      method: 'PUT',
-      body: JSON.stringify(updated)
-    });
-    
-    const idx = bikesCache.findIndex(b => b.id === updated.id);
-    if (idx > -1) bikesCache[idx] = bike;
-    
+    bike.id = nextId(bikes);
+    bike.createdAt = new Date().toISOString();
+    bikes.push(bike);
+    setBikes(bikes);
+    localStorage.setItem('bikes_update_ts', Date.now());
     return bike;
   }
 
-  async function removeBike(id) {
-    await apiCall(`/bikes/${id}`, {
-      method: 'DELETE'
-    });
-    
-    bikesCache = bikesCache.filter(b => b.id !== id);
+  function updateBike(updated) {
+    const bikes = getBikes();
+    const idx = bikes.findIndex(b => b.id === updated.id);
+    if (idx === -1) throw new Error('Bike not found');
+    bikes[idx] = { ...bikes[idx], ...updated, updatedAt: new Date().toISOString() };
+    setBikes(bikes);
+    localStorage.setItem('bikes_update_ts', Date.now());
+  }
+
+  function removeBike(id) {
+    let bikes = getBikes();
+    bikes = bikes.filter(b => b.id !== id);
+    setBikes(bikes);
+    localStorage.setItem('bikes_update_ts', Date.now());
   }
 
   /* ---------- Rentals & Transactions ---------- */
@@ -295,12 +249,12 @@
     const adminLoginForm = q('adminLoginForm');
 
     if (adminRegisterForm) {
-      adminRegisterForm.addEventListener('submit', async (e) => {
+      adminRegisterForm.addEventListener('submit', (e) => {
         e.preventDefault();
         try {
           const email = q('regEmail').value.trim();
           const pw = q('regPassword').value;
-          await registerAdmin(email, pw);
+          registerAdmin(email, pw);
           q('registerMessage').style.color = '#10b981';
           q('registerMessage').textContent = '✅ Admin created! Please login.';
           setTimeout(() => { q('registerMessage').textContent = ''; }, 2000);
@@ -313,13 +267,12 @@
     }
 
     if (adminLoginForm) {
-      adminLoginForm.addEventListener('submit', async (e) => {
+      adminLoginForm.addEventListener('submit', (e) => {
         e.preventDefault();
         try {
           const email = q('loginEmail').value.trim();
           const pw = q('loginPassword').value;
-          const admin = await loginAdmin(email, pw);
-          setCurrentAdmin(admin);
+          loginAdmin(email, pw);
           showAdminDashboard();
           showNotificationBar('✅ Admin login successful', 'success');
         } catch (err) {
@@ -347,7 +300,7 @@
         });
       }
 
-      addBikeForm.addEventListener('submit', async (e) => {
+      addBikeForm.addEventListener('submit', (e) => {
         e.preventDefault();
         try {
           const name = q('bikeName').value.trim();
@@ -356,18 +309,20 @@
           const description = q('bikeDescription') ? q('bikeDescription').value.trim() : '';
           const imageData = q('bikeImage').value || 'images/placeholder.png';
           const available = q('bikeAvail').value === 'true';
-          await addBike({ name, type, price, description, image: imageData, available });
+          addBike({ name, type, price, description, image: imageData, available });
           showNotificationBar('✅ Bike added successfully', 'success');
           addBikeForm.reset();
           if (preview) preview.innerHTML = '';
-          await loadAdminTables();
+          loadAdminTables();
+          // Dispatch custom event to update rent page in real-time
+          window.dispatchEvent(new CustomEvent('bikeAdded', { detail: { bikes: getBikes() } }));
         } catch (err) {
           showNotificationBar('❌ ' + err.message, 'error');
         }
       });
     }
 
-    document.addEventListener('click', async (ev) => {
+    document.addEventListener('click', (ev) => {
       const el = ev.target;
       if (el.matches('[data-action="delete-user"]')) {
         const email = el.dataset.email;
@@ -379,36 +334,32 @@
         rentals = rentals.filter(r => r.userEmail !== email);
         storage.set('rentals', rentals);
         showNotificationBar('✅ User deleted', 'success');
-        await loadAdminTables();
+        loadAdminTables();
       }
       if (el.matches('[data-action="delete-bike"]')) {
         const id = Number(el.dataset.id);
         if (!confirm('Delete bike?')) return;
-        try {
-          await removeBike(id);
-          showNotificationBar('✅ Bike deleted', 'success');
-          await loadAdminTables();
-        } catch (err) {
-          showNotificationBar('❌ ' + err.message, 'error');
-        }
+        removeBike(id);
+        showNotificationBar('✅ Bike deleted', 'success');
+        loadAdminTables();
+        // Dispatch custom event to update rent page in real-time
+        window.dispatchEvent(new CustomEvent('bikeRemoved', { detail: { bikeId: id } }));
       }
       if (el.matches('[data-action="toggle-bike"]')) {
         const id = Number(el.dataset.id);
-        const bikes = await getBikes();
+        const bikes = getBikes();
         const b = bikes.find(x => x.id === id);
         if (!b) return;
         b.available = !b.available;
-        try {
-          await updateBike(b);
-          showNotificationBar(`✅ Bike marked as ${b.available ? 'available' : 'unavailable'}`, 'success');
-          await loadAdminTables();
-        } catch (err) {
-          showNotificationBar('❌ ' + err.message, 'error');
-        }
+        updateBike(b);
+        showNotificationBar(`✅ Bike marked as ${b.available ? 'available' : 'unavailable'}`, 'success');
+        loadAdminTables();
+        // Dispatch custom event to update rent page in real-time
+        window.dispatchEvent(new CustomEvent('bikeUpdated', { detail: { bike: b } }));
       }
       if (el.matches('[data-action="edit-bike"]')) {
         const id = Number(el.dataset.id);
-        const bikes = await getBikes();
+        const bikes = getBikes();
         const b = bikes.find(x => x.id === id);
         if (!b) return alert('Bike not found');
         const name = prompt('Name:', b.name);
@@ -418,13 +369,11 @@
         b.name = name;
         b.type = type;
         b.price = price;
-        try {
-          await updateBike(b);
-          showNotificationBar('✅ Bike updated', 'success');
-          await loadAdminTables();
-        } catch (err) {
-          showNotificationBar('❌ ' + err.message, 'error');
-        }
+        updateBike(b);
+        showNotificationBar('✅ Bike updated', 'success');
+        loadAdminTables();
+        // Dispatch custom event to update rent page in real-time
+        window.dispatchEvent(new CustomEvent('bikeUpdated', { detail: { bike: b } }));
       }
     });
   }
@@ -444,9 +393,9 @@
     loadAdminTables();
   }
 
-  async function loadAdminTables() {
+  function loadAdminTables() {
     const users = storage.get('users', []);
-    const bikes = await getBikes();
+    const bikes = getBikes();
     const rentals = storage.get('rentals', []);
 
     const userTbody = document.querySelector('#userTable tbody');
@@ -504,53 +453,26 @@
     const checkoutFormEl = q('checkoutForm');
     if (!bikesListEl) return;
 
-    async function renderBikes() {
-      try {
-        bikesListEl.innerHTML = '<p style="text-align: center; color: #5b0be5; font-weight: 600; padding: 40px 20px;">⏳ Loading bikes...</p>';
-        
-        const bikes = await getBikes();
-        
-        if (!bikes || bikes.length === 0) {
-          bikesListEl.innerHTML = `
-            <div style="text-align: center; padding: 40px 20px;">
-              <p style="color: #ef4444; font-weight: 600; margin-bottom: 15px;">No bikes available</p>
-              <button onclick="location.reload()" style="padding: 10px 20px; background: #5b0be5; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">🔄 Refresh</button>
-            </div>
-          `;
-          return;
-        }
-        
-        bikesListEl.innerHTML = bikes.map(b => `
-          <div class="bike-card" data-id="${b.id}" style="border:${b.available ? '' : '2px dashed #cbd5e1'}">
-            <div class="bike-image"><img src="${b.image}" alt="${escapeHtml(b.name)}" /></div>
-            <div class="bike-info">
-              <h3>${escapeHtml(b.name)}</h3>
-              <p class="small">${escapeHtml(b.type)}</p>
-              <p class="small" style="color:#64748b">${escapeHtml(b.description || '')}</p>
-              <div class="bike-price">KES ${b.price.toLocaleString()}/hour</div>
-              <button class="btn rent-btn" data-id="${b.id}" ${b.available ? '' : 'disabled'} style="width:100%">${b.available ? '🚴 Rent Now' : '❌ Unavailable'}</button>
-            </div>
+    function renderBikes() {
+      const bikes = getBikes();
+      bikesListEl.innerHTML = bikes.map(b => `
+        <div class="bike-card" data-id="${b.id}" style="border:${b.available ? '' : '2px dashed #cbd5e1'}">
+          <div class="bike-image"><img src="${b.image}" alt="${escapeHtml(b.name)}" /></div>
+          <div class="bike-info">
+            <h3>${escapeHtml(b.name)}</h3>
+            <p class="small">${escapeHtml(b.type)}</p>
+            <p class="small" style="color:#64748b">${escapeHtml(b.description || '')}</p>
+            <div class="bike-price">KES ${b.price.toLocaleString()}/hour</div>
+            <button class="btn rent-btn" data-id="${b.id}" ${b.available ? '' : 'disabled'} style="width:100%">${b.available ? '🚴 Rent Now' : '❌ Unavailable'}</button>
           </div>
-        `).join('');
-        bikesListEl.querySelectorAll('.rent-btn').forEach(btn => btn.addEventListener('click', onRentClick));
-      } catch (err) {
-        console.error('Error rendering bikes:', err);
-        bikesListEl.innerHTML = `
-          <div style="text-align: center; padding: 40px 20px;">
-            <p style="color: #ef4444; font-weight: 600; margin-bottom: 10px;">⚠️ Failed to load bikes</p>
-            <p style="color: #64748b; font-size: 0.9em; margin-bottom: 15px;">Make sure the backend server is running:</p>
-            <code style="background: #f7f7fa; padding: 10px; border-radius: 6px; display: inline-block; color: #222; font-family: monospace;">npm start</code>
-            <div style="margin-top: 15px;">
-              <button onclick="location.reload()" style="padding: 10px 20px; background: #5b0be5; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">🔄 Retry</button>
-            </div>
-          </div>
-        `;
-      }
+        </div>
+      `).join('');
+      bikesListEl.querySelectorAll('.rent-btn').forEach(btn => btn.addEventListener('click', onRentClick));
     }
 
     function onRentClick(e) {
       const id = Number(e.currentTarget.dataset.id);
-      const bike = bikesCache.find(x => x.id === id);
+      const bike = getBikes().find(x => x.id === id);
       if (!bike) return showNotificationBar('❌ Bike not found', 'error');
       const currentUser = getCurrentUser();
       if (!currentUser) {
@@ -559,15 +481,179 @@
         return;
       }
 
-      // Redirect to checkout page with bike ID
-      window.location.href = `checkout.html?bikeId=${bike.id}`;
+      if (rentalDetailsEl) {
+        rentalDetailsEl.innerHTML = `
+          <div style="display:flex;gap:14px;align-items:center;padding:16px;background:#f8fafc;border-radius:10px">
+            <img src="${bike.image}" alt="${escapeHtml(bike.name)}" style="width:120px;height:100px;object-fit:cover;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
+            <div>
+              <h3 style="margin:0 0 4px 0">${escapeHtml(bike.name)}</h3>
+              <p class="small" style="margin:0 0 8px 0">${escapeHtml(bike.type)} • ${escapeHtml(bike.description || '')}</p>
+              <p style="margin:0"><strong>💰 Price:</strong> KES ${bike.price.toLocaleString()} / hour</p>
+            </div>
+          </div>
+        `;
+      }
+
+      if (checkoutFormEl) {
+        checkoutFormEl.innerHTML = `
+          <form id="rentForm">
+            <div class="form-group">
+              <label>👤 Renter</label>
+              <input type="text" value="${escapeHtml(currentUser.fullname)}" readonly>
+            </div>
+            <div class="form-group">
+              <label>⏰ Rental Hours</label>
+              <input type="number" id="rentHours" value="1" min="1" max="24" required onchange="updateRentalTotal()">
+            </div>
+            <div class="form-group">
+              <label>🏷️ Registration Number</label>
+              <input type="text" id="regNumber" placeholder="000-000-000/0000" required>
+            </div>
+            <div style="background:#f0f9ff;padding:12px;border-radius:6px;margin-bottom:14px">
+              <p style="margin:0">Total: <strong>KES <span id="rentalTotal">${bike.price.toLocaleString()}</span></strong></p>
+            </div>
+            <div class="form-group">
+              <label>📞 Mobile Provider</label>
+              <select id="rentProvider" required>
+                <option value="">Select Provider</option>
+                <option> safaricom</option>
+                <option> Airtel</option>
+                <option> T-Kash</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>📱 Mobile Number</label>
+              <input id="rentMobile" type="tel" placeholder="0712345678" pattern="^[0-9]{10}$" required>
+            </div>
+            <div class="form-group">
+              <label>🔒 Mobile PIN</label>
+              <input id="rentPin" type="password" maxlength="6" placeholder="Your PIN" pattern="^[0-9]{4,6}$" required>
+            </div>
+            <button class="btn btn-primary" type="submit" style="width:100%">✅ Confirm & Pay</button>
+            <div id="rentMessage" style="margin-top:10px;padding:10px;border-radius:6px;display:none;"></div>
+          </form>
+        `;
+
+        window.updateRentalTotal = () => {
+          const hours = Number(q('rentHours').value) || 1;
+          const total = bike.price * hours;
+          q('rentalTotal').textContent = total.toLocaleString();
+        };
+
+        const formEl = q('rentForm');
+        if (!formEl) return;
+        formEl.addEventListener('submit', (ev) => {
+          ev.preventDefault();
+          const hours = Number(q('rentHours').value) || 1;
+          const provider = q('rentProvider').value;
+          const mobile = q('rentMobile').value.trim();
+          const pin = q('rentPin').value.trim();
+          const regNumber = q('regNumber').value.trim();
+          const rentMessage = q('rentMessage');
+
+          const regNumberNorm = (regNumber || '').toUpperCase();
+          const regRegex = /^[A-Z]{3}-\d{3}-\d{3}\/\d{4}$/;
+          if (!regNumber || !regRegex.test(regNumberNorm)) {
+            rentMessage.style.display = 'block';
+            rentMessage.style.background = '#fee2e2';
+            rentMessage.style.color = '#991b1b';
+            rentMessage.textContent = '❌ Registration number must match format e.g. ENG-219-036/2025';
+            return;
+          }
+
+          if (!provider) {
+            rentMessage.style.display = 'block';
+            rentMessage.style.background = '#fee2e2';
+            rentMessage.style.color = '#991b1b';
+            rentMessage.textContent = '❌ Please select a provider';
+            return;
+          }
+
+          if (!/^\d{10}$/.test(mobile.replace(/\D/g, ''))) {
+            rentMessage.style.display = 'block';
+            rentMessage.style.background = '#fee2e2';
+            rentMessage.style.color = '#991b1b';
+            rentMessage.textContent = '❌ Invalid mobile number';
+            return;
+          }
+
+          if (!/^\d{4,6}$/.test(pin)) {
+            rentMessage.style.display = 'block';
+            rentMessage.style.background = '#fee2e2';
+            rentMessage.style.color = '#991b1b';
+            rentMessage.textContent = '❌ PIN must be 4-6 digits';
+            return;
+          }
+
+          const amount = bike.price * hours;
+          rentMessage.style.display = 'block';
+          rentMessage.style.background = '#0766e1ff';
+          rentMessage.style.color = '#1e40af';
+          rentMessage.textContent = '⏳ Processing payment...';
+
+          processMobilePayment(provider, mobile, pin, amount, getCurrentUser().email)
+            .then(tx => {
+              const startDate = new Date();
+              const endDate = new Date(startDate.getTime() + hours * 3600000);
+              const rental = saveRental({
+                userName: getCurrentUser().fullname,
+                userEmail: getCurrentUser().email,
+                regNumber: regNumberNorm,
+                bikeId: bike.id,
+                bikeName: bike.name,
+                hours,
+                startDate: startDate.toISOString(),
+                endDate: endDate.toISOString(),
+                provider,
+                mobile,
+                paid: true,
+                transactionId: tx.id
+              });
+
+              const bikes = getBikes();
+              const idx = bikes.findIndex(b => b.id === bike.id);
+              if (idx > -1) { bikes[idx].available = false; setBikes(bikes); }
+
+              const user = getCurrentUser();
+              user.rentals = (user.rentals || 0) + 1;
+              setCurrentUser(user);
+              updateUserInList({ ...user, rentals: user.rentals });
+
+              rentMessage.style.background = '#dcfce7';
+              rentMessage.style.color = '#470fcbff';
+              rentMessage.innerHTML = `✅ Payment successful!<br>Tx: <strong>${tx.id}</strong><br>Rental: <strong>${rental.id}</strong><br>Duration: <strong>${hours} hour(s)</strong>`;
+              renderBikes();
+
+              setTimeout(() => window.location.href = 'index.html', 3000);
+            })
+            .catch(err => {
+              rentMessage.style.background = '#fee2e2';
+              rentMessage.style.color = '#991b1b';
+              rentMessage.textContent = '❌ ' + (err.message || 'Payment failed');
+            });
+        });
+      }
     }
 
-    // Call renderBikes without await to display loading state, then re-call after bikes load
     renderBikes();
     
+    // Listen for storage events (cross-tab updates)
     window.addEventListener('storage', (ev) => {
       if (ev.key === 'bikes' || ev.key === 'bikes_update_ts' || ev.key === 'rentals_update_ts') renderBikes();
+    });
+    
+    // Listen for custom events (same-tab updates from admin panel)
+    window.addEventListener('bikeAdded', () => {
+      renderBikes();
+      showNotificationBar('🚴 New bike available!', 'success', 2000);
+    });
+    
+    window.addEventListener('bikeUpdated', () => {
+      renderBikes();
+    });
+    
+    window.addEventListener('bikeRemoved', () => {
+      renderBikes();
     });
   }
 
@@ -579,31 +665,10 @@
         e.preventDefault();
         try {
           const fullname = q('signupName').value.trim();
-          const email = (q('signupEmail').value || '').trim().toLowerCase();
+          const email = q('signupEmail').value.trim();
           const pw = q('signupPassword').value;
           const phone = q('signupPhone') ? q('signupPhone').value.trim() : '';
-
-          // create user
-          const user = signupUser({ fullname, email, password: pw, phone });
-
-          // If there are fewer than 2 admins and this user is among the first two registered users, offer admin registration
-          const admins = getAdmins();
-          const users = storage.get('users', []);
-          if ((admins.length < 2) && (users.length <= 2)) {
-            if (confirm('You are among the first two registered users. Would you like to register as an admin now?')) {
-              try {
-                registerAdmin(email, pw);
-                const admin = getAdmins().find(a => a.email === email);
-                if (admin) setCurrentAdmin({ id: admin.id, email: admin.email });
-                showNotificationBar('✅ Admin account created! Redirecting to admin portal...', 'success');
-                setTimeout(() => window.location.href = 'admin.html', 1200);
-                return;
-              } catch (err) {
-                showNotificationBar('❌ Admin registration failed: ' + err.message, 'error', 3500);
-              }
-            }
-          }
-
+          signupUser({ fullname, email, password: pw, phone });
           showNotificationBar('✅ Account created! Redirecting...', 'success');
           setTimeout(() => window.location.href = 'index.html', 1500);
         } catch (err) {
@@ -748,11 +813,6 @@
     saveMessage,
     replyToMessage
   };
-
-  // Initialize bikes cache on page load
-  getBikes().catch(err => {
-    console.warn('Failed to load bikes on startup:', err);
-  });
 
 })();
 
