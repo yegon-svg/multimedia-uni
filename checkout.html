@@ -247,15 +247,25 @@
       window.location.href = 'rent.html';
     }
 
-    // Fetch bike from centralized backend
+    // Fetch bike from localStorage first, then try backend as fallback
     async function fetchBike(id) {
+      // Try localStorage first (primary source)
+      try {
+        const bikes = JSON.parse(localStorage.getItem('bikes') || '[]');
+        const localBike = bikes.find(b => b.id == id);
+        if (localBike) return localBike;
+      } catch (e) {
+        console.error('Error reading from localStorage:', e);
+      }
+      
+      // Fallback to backend API
       try {
         const response = await fetch(`${API_URL}/bikes`);
         if (!response.ok) throw new Error('Failed to fetch bikes');
         const bikes = await response.json();
         return bikes.find(b => b.id == id);
       } catch (error) {
-        console.error('Error fetching bike:', error);
+        console.error('Error fetching bike from backend:', error);
         return null;
       }
     }
@@ -427,3 +437,4 @@
   </script>
 </body>
 </html>
+
