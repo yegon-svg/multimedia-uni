@@ -1,3 +1,4 @@
+
 (function () {
   'use strict';
 
@@ -504,20 +505,47 @@
     if (!bikesListEl) return;
 
     async function renderBikes() {
-      const bikes = await getBikes();
-      bikesListEl.innerHTML = bikes.map(b => `
-        <div class="bike-card" data-id="${b.id}" style="border:${b.available ? '' : '2px dashed #cbd5e1'}">
-          <div class="bike-image"><img src="${b.image}" alt="${escapeHtml(b.name)}" /></div>
-          <div class="bike-info">
-            <h3>${escapeHtml(b.name)}</h3>
-            <p class="small">${escapeHtml(b.type)}</p>
-            <p class="small" style="color:#64748b">${escapeHtml(b.description || '')}</p>
-            <div class="bike-price">KES ${b.price.toLocaleString()}/hour</div>
-            <button class="btn rent-btn" data-id="${b.id}" ${b.available ? '' : 'disabled'} style="width:100%">${b.available ? '🚴 Rent Now' : '❌ Unavailable'}</button>
+      try {
+        bikesListEl.innerHTML = '<p style="text-align: center; color: #5b0be5; font-weight: 600; padding: 40px 20px;">⏳ Loading bikes...</p>';
+        
+        const bikes = await getBikes();
+        
+        if (!bikes || bikes.length === 0) {
+          bikesListEl.innerHTML = `
+            <div style="text-align: center; padding: 40px 20px;">
+              <p style="color: #ef4444; font-weight: 600; margin-bottom: 15px;">No bikes available</p>
+              <button onclick="location.reload()" style="padding: 10px 20px; background: #5b0be5; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">🔄 Refresh</button>
+            </div>
+          `;
+          return;
+        }
+        
+        bikesListEl.innerHTML = bikes.map(b => `
+          <div class="bike-card" data-id="${b.id}" style="border:${b.available ? '' : '2px dashed #cbd5e1'}">
+            <div class="bike-image"><img src="${b.image}" alt="${escapeHtml(b.name)}" /></div>
+            <div class="bike-info">
+              <h3>${escapeHtml(b.name)}</h3>
+              <p class="small">${escapeHtml(b.type)}</p>
+              <p class="small" style="color:#64748b">${escapeHtml(b.description || '')}</p>
+              <div class="bike-price">KES ${b.price.toLocaleString()}/hour</div>
+              <button class="btn rent-btn" data-id="${b.id}" ${b.available ? '' : 'disabled'} style="width:100%">${b.available ? '🚴 Rent Now' : '❌ Unavailable'}</button>
+            </div>
           </div>
-        </div>
-      `).join('');
-      bikesListEl.querySelectorAll('.rent-btn').forEach(btn => btn.addEventListener('click', onRentClick));
+        `).join('');
+        bikesListEl.querySelectorAll('.rent-btn').forEach(btn => btn.addEventListener('click', onRentClick));
+      } catch (err) {
+        console.error('Error rendering bikes:', err);
+        bikesListEl.innerHTML = `
+          <div style="text-align: center; padding: 40px 20px;">
+            <p style="color: #ef4444; font-weight: 600; margin-bottom: 10px;">⚠️ Failed to load bikes</p>
+            <p style="color: #64748b; font-size: 0.9em; margin-bottom: 15px;">Make sure the backend server is running:</p>
+            <code style="background: #f7f7fa; padding: 10px; border-radius: 6px; display: inline-block; color: #222; font-family: monospace;">npm start</code>
+            <div style="margin-top: 15px;">
+              <button onclick="location.reload()" style="padding: 10px 20px; background: #5b0be5; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">🔄 Retry</button>
+            </div>
+          </div>
+        `;
+      }
     }
 
     function onRentClick(e) {
@@ -535,7 +563,9 @@
       window.location.href = `checkout.html?bikeId=${bike.id}`;
     }
 
+    // Call renderBikes without await to display loading state, then re-call after bikes load
     renderBikes();
+    
     window.addEventListener('storage', (ev) => {
       if (ev.key === 'bikes' || ev.key === 'bikes_update_ts' || ev.key === 'rentals_update_ts') renderBikes();
     });
@@ -725,3 +755,4 @@
   });
 
 })();
+
