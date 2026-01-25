@@ -1,6 +1,8 @@
-
 (function () {
   'use strict';
+
+  // Backend API URL - change this if running backend on different server
+  const API_URL = 'http://localhost:3001/api';
 
   /* ---------- Storage helpers ---------- */
   const storage = {
@@ -11,17 +13,33 @@
     remove(key) { localStorage.removeItem(key); }
   };
 
+  /* ---------- API Fetch Helpers ---------- */
+  async function apiCall(endpoint, options = {}) {
+    try {
+      const url = `${API_URL}${endpoint}`;
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers
+        }
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `API Error: ${response.status}`);
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error(`API Call Error (${endpoint}):`, error);
+      throw error;
+    }
+  }
+
   /* ---------- Seed sample data if missing ---------- */
   function seedIfNeeded() {
-    if (!storage.get('bikes')) {
-      storage.set('bikes', [
-        { id: 1, name: 'Mountain Bike Pro', type: 'Mountain', price: 50, image: 'mountain-bike-1.jpeg', available: true, description: 'Perfect for off-road trails' },
-        { id: 2, name: 'Road Bike Speed', type: 'Road', price: 80, image: 'road-bike-1.jpeg', available: true, description: 'Fast and lightweight for campus' },
-        { id: 3, name: 'Electric Bike Plus', type: 'E-Bike', price: 150, image: 'electric-1.jpeg', available: true, description: 'Eco-friendly with long battery' }
-      ]);
-    }
     if (!storage.get('users')) storage.set('users', []);
-    if (!storage.get('admins')) storage.set('admins', []);
     if (!storage.get('rentals')) storage.set('rentals', []);
     if (!storage.get('transactions')) storage.set('transactions', []);
     if (!storage.get('messages')) storage.set('messages', []);
@@ -85,62 +103,85 @@
     return u;
   }
 
-  /* ---------- Admin auth ---------- */
+  /* ---------- Admin auth (using backend API) ---------- */
   function getAdmins() { return storage.get('admins', []); }
   function setAdmins(a) { storage.set('admins', a); }
   function getCurrentAdmin() { return storage.get('currentAdmin', null); }
   function setCurrentAdmin(a) { storage.set('currentAdmin', a); }
   function clearCurrentAdmin() { storage.remove('currentAdmin'); }
 
-  function registerAdmin(email, password) {
-    const admins = getAdmins();
-    // Enforce maximum of two admins
-    if (admins && admins.length >= 2) throw new Error('Admin limit reached. Only two admins allowed.');
-    if (!validateEmail(email)) throw new Error('Invalid email format');
-    if (password.length < 6) throw new Error('Password must be at least 6 characters');
-    if (admins.find(a => a.email === email)) throw new Error('Admin already exists');
-    admins.push({ id: Date.now(), email, password: btoa(password), createdAt: new Date().toISOString() });
-    setAdmins(admins);
-    return true;
+  async function registerAdmin(email, password) {
+    try {
+      const admin = await apiCall('/admins/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      });
+      return admin;
+    } catch (error) {
+      throw error;
+    }
   }
 
-  function loginAdmin(email, password) {
-    const admin = getAdmins().find(a => a.email === email);
-    if (!admin || atob(admin.password) !== password) throw new Error('Invalid admin credentials');
-    setCurrentAdmin({ id: admin.id, email: admin.email });
-    return admin;
+  async function loginAdmin(email, password) {
+    try {
+      const admin = await apiCall('/admins/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      });
+      return admin;
+    } catch (error) {
+      throw error;
+    }
   }
 
-  /* ---------- Bikes management ---------- */
-  function getBikes() { return storage.get('bikes', []); }
-  function setBikes(list) { storage.set('bikes', list); }
+  /* ---------- Bikes management (using backend API) ---------- */
+  let bikesCache = [];
+  
+  async function getBikes() { 
+    try {
+      bikesCache = await apiCall('/bikes');
+      return bikesCache;
+    } catch (error) {
+      console.warn('Failed to fetch bikes from backend:', error);
+      return bikesCache;
+    }
+  }
+  
+  async function setBikes(list) { 
+    bikesCache = list;
+  }
 
-  function addBike(bike) {
-    const bikes = getBikes();
+  async function addBike(bike) {
     if (!bike.name || !bike.type) throw new Error('Bike name and type required');
     if (bike.price < 0) throw new Error('Invalid price');
-    bike.id = nextId(bikes);
-    bike.createdAt = new Date().toISOString();
-    bikes.push(bike);
-    setBikes(bikes);
-    localStorage.setItem('bikes_update_ts', Date.now());
+    
+    const newBike = await apiCall('/bikes', {
+      method: 'POST',
+      body: JSON.stringify(bike)
+    });
+    
+    bikesCache.push(newBike);
+    return newBike;
+  }
+
+  async function updateBike(updated) {
+    const bike = await apiCall(`/bikes/${updated.id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updated)
+    });
+    
+    const idx = bikesCache.findIndex(b => b.id === updated.id);
+    if (idx > -1) bikesCache[idx] = bike;
+    
     return bike;
   }
 
-  function updateBike(updated) {
-    const bikes = getBikes();
-    const idx = bikes.findIndex(b => b.id === updated.id);
-    if (idx === -1) throw new Error('Bike not found');
-    bikes[idx] = { ...bikes[idx], ...updated, updatedAt: new Date().toISOString() };
-    setBikes(bikes);
-    localStorage.setItem('bikes_update_ts', Date.now());
-  }
-
-  function removeBike(id) {
-    let bikes = getBikes();
-    bikes = bikes.filter(b => b.id !== id);
-    setBikes(bikes);
-    localStorage.setItem('bikes_update_ts', Date.now());
+  async function removeBike(id) {
+    await apiCall(`/bikes/${id}`, {
+      method: 'DELETE'
+    });
+    
+    bikesCache = bikesCache.filter(b => b.id !== id);
   }
 
   /* ---------- Rentals & Transactions ---------- */
@@ -253,12 +294,12 @@
     const adminLoginForm = q('adminLoginForm');
 
     if (adminRegisterForm) {
-      adminRegisterForm.addEventListener('submit', (e) => {
+      adminRegisterForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         try {
           const email = q('regEmail').value.trim();
           const pw = q('regPassword').value;
-          registerAdmin(email, pw);
+          await registerAdmin(email, pw);
           q('registerMessage').style.color = '#10b981';
           q('registerMessage').textContent = '✅ Admin created! Please login.';
           setTimeout(() => { q('registerMessage').textContent = ''; }, 2000);
@@ -271,12 +312,13 @@
     }
 
     if (adminLoginForm) {
-      adminLoginForm.addEventListener('submit', (e) => {
+      adminLoginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         try {
           const email = q('loginEmail').value.trim();
           const pw = q('loginPassword').value;
-          loginAdmin(email, pw);
+          const admin = await loginAdmin(email, pw);
+          setCurrentAdmin(admin);
           showAdminDashboard();
           showNotificationBar('✅ Admin login successful', 'success');
         } catch (err) {
@@ -304,7 +346,7 @@
         });
       }
 
-      addBikeForm.addEventListener('submit', (e) => {
+      addBikeForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         try {
           const name = q('bikeName').value.trim();
@@ -313,18 +355,18 @@
           const description = q('bikeDescription') ? q('bikeDescription').value.trim() : '';
           const imageData = q('bikeImage').value || 'images/placeholder.png';
           const available = q('bikeAvail').value === 'true';
-          addBike({ name, type, price, description, image: imageData, available });
+          await addBike({ name, type, price, description, image: imageData, available });
           showNotificationBar('✅ Bike added successfully', 'success');
           addBikeForm.reset();
           if (preview) preview.innerHTML = '';
-          loadAdminTables();
+          await loadAdminTables();
         } catch (err) {
           showNotificationBar('❌ ' + err.message, 'error');
         }
       });
     }
 
-    document.addEventListener('click', (ev) => {
+    document.addEventListener('click', async (ev) => {
       const el = ev.target;
       if (el.matches('[data-action="delete-user"]')) {
         const email = el.dataset.email;
@@ -336,28 +378,36 @@
         rentals = rentals.filter(r => r.userEmail !== email);
         storage.set('rentals', rentals);
         showNotificationBar('✅ User deleted', 'success');
-        loadAdminTables();
+        await loadAdminTables();
       }
       if (el.matches('[data-action="delete-bike"]')) {
         const id = Number(el.dataset.id);
         if (!confirm('Delete bike?')) return;
-        removeBike(id);
-        showNotificationBar('✅ Bike deleted', 'success');
-        loadAdminTables();
+        try {
+          await removeBike(id);
+          showNotificationBar('✅ Bike deleted', 'success');
+          await loadAdminTables();
+        } catch (err) {
+          showNotificationBar('❌ ' + err.message, 'error');
+        }
       }
       if (el.matches('[data-action="toggle-bike"]')) {
         const id = Number(el.dataset.id);
-        const bikes = getBikes();
+        const bikes = await getBikes();
         const b = bikes.find(x => x.id === id);
         if (!b) return;
         b.available = !b.available;
-        updateBike(b);
-        showNotificationBar(`✅ Bike marked as ${b.available ? 'available' : 'unavailable'}`, 'success');
-        loadAdminTables();
+        try {
+          await updateBike(b);
+          showNotificationBar(`✅ Bike marked as ${b.available ? 'available' : 'unavailable'}`, 'success');
+          await loadAdminTables();
+        } catch (err) {
+          showNotificationBar('❌ ' + err.message, 'error');
+        }
       }
       if (el.matches('[data-action="edit-bike"]')) {
         const id = Number(el.dataset.id);
-        const bikes = getBikes();
+        const bikes = await getBikes();
         const b = bikes.find(x => x.id === id);
         if (!b) return alert('Bike not found');
         const name = prompt('Name:', b.name);
@@ -367,9 +417,13 @@
         b.name = name;
         b.type = type;
         b.price = price;
-        updateBike(b);
-        showNotificationBar('✅ Bike updated', 'success');
-        loadAdminTables();
+        try {
+          await updateBike(b);
+          showNotificationBar('✅ Bike updated', 'success');
+          await loadAdminTables();
+        } catch (err) {
+          showNotificationBar('❌ ' + err.message, 'error');
+        }
       }
     });
   }
@@ -389,9 +443,9 @@
     loadAdminTables();
   }
 
-  function loadAdminTables() {
+  async function loadAdminTables() {
     const users = storage.get('users', []);
-    const bikes = getBikes();
+    const bikes = await getBikes();
     const rentals = storage.get('rentals', []);
 
     const userTbody = document.querySelector('#userTable tbody');
@@ -449,8 +503,8 @@
     const checkoutFormEl = q('checkoutForm');
     if (!bikesListEl) return;
 
-    function renderBikes() {
-      const bikes = getBikes();
+    async function renderBikes() {
+      const bikes = await getBikes();
       bikesListEl.innerHTML = bikes.map(b => `
         <div class="bike-card" data-id="${b.id}" style="border:${b.available ? '' : '2px dashed #cbd5e1'}">
           <div class="bike-image"><img src="${b.image}" alt="${escapeHtml(b.name)}" /></div>
@@ -468,7 +522,7 @@
 
     function onRentClick(e) {
       const id = Number(e.currentTarget.dataset.id);
-      const bike = getBikes().find(x => x.id === id);
+      const bike = bikesCache.find(x => x.id === id);
       if (!bike) return showNotificationBar('❌ Bike not found', 'error');
       const currentUser = getCurrentUser();
       if (!currentUser) {
@@ -664,5 +718,10 @@
     saveMessage,
     replyToMessage
   };
+
+  // Initialize bikes cache on page load
+  getBikes().catch(err => {
+    console.warn('Failed to load bikes on startup:', err);
+  });
 
 })();
