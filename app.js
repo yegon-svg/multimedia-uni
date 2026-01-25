@@ -449,12 +449,15 @@
   /* ---------- Rent page ---------- */
   function wireRentPage() {
     const bikesListEl = q('bikesList');
-    const rentalDetailsEl = q('rentalDetails');
-    const checkoutFormEl = q('checkoutForm');
     if (!bikesListEl) return;
 
     function renderBikes() {
       const bikes = getBikes();
+      if (!bikes || bikes.length === 0) {
+        bikesListEl.innerHTML = '<p style="text-align:center;padding:20px;color:#666">⏳ Loading bikes...</p>';
+        return;
+      }
+      
       bikesListEl.innerHTML = bikes.map(b => `
         <div class="bike-card" data-id="${b.id}" style="border:${b.available ? '' : '2px dashed #cbd5e1'}">
           <div class="bike-image"><img src="${b.image}" alt="${escapeHtml(b.name)}" /></div>
@@ -472,8 +475,13 @@
 
     function onRentClick(e) {
       const id = Number(e.currentTarget.dataset.id);
-      const bike = getBikes().find(x => x.id === id);
-      if (!bike) return showNotificationBar('❌ Bike not found', 'error');
+      const bikes = getBikes();
+      const bike = bikes.find(x => x.id === id);
+      if (!bike) {
+        console.error('Bike not found. ID:', id, 'Available bikes:', bikes.map(b => b.id));
+        return showNotificationBar('❌ Bike not found', 'error');
+      }
+      
       const currentUser = getCurrentUser();
       if (!currentUser) {
         showNotificationBar('❌ Please login to rent', 'error');
@@ -489,21 +497,23 @@
     
     // Listen for storage events (cross-tab updates)
     window.addEventListener('storage', (ev) => {
-      if (ev.key === 'bikes' || ev.key === 'bikes_update_ts' || ev.key === 'rentals_update_ts') renderBikes();
+      if (ev.key === 'bikes' || ev.key === 'bikes_update_ts' || ev.key === 'rentals_update_ts') {
+        renderBikes();
+      }
     });
     
     // Listen for custom events (same-tab updates from admin panel)
     window.addEventListener('bikeAdded', () => {
-      renderBikes();
+      setTimeout(() => renderBikes(), 100);
       showNotificationBar('🚴 New bike available!', 'success', 2000);
     });
     
     window.addEventListener('bikeUpdated', () => {
-      renderBikes();
+      setTimeout(() => renderBikes(), 100);
     });
     
     window.addEventListener('bikeRemoved', () => {
-      renderBikes();
+      setTimeout(() => renderBikes(), 100);
     });
   }
 
