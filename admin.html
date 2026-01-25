@@ -315,10 +315,10 @@ function seedBikes(){
     const existing = JSON.parse(localStorage.getItem('bikes')||'[]');
     if(existing.length) return;
     const sample = [
-        {id:1,name:'Mountain Bike',type:'Mountain',price:500,image:'images/mountain-bike-2.jpeg',available:true},
-        {id:2,name:'Road Bike',type:'Road',price:800,image:'images/road-bike-1.jpeg',available:true},
-        {id:3,name:'Electric Bike',type:'E-Bike',price:1500,image:'images/electric-22.jpeg',available:true},
-        {id:4,name:'Hybrid Bike',type:'Hybrid',price:1000,image:'images/hybrid-d.jpeg',available:true}
+        {id:1,name:'Mountain Bike',type:'Mountain',price:50,image:'images/mountain-bike-2.jpeg',available:true},
+        {id:2,name:'Road Bike',type:'Road',price:80,image:'images/road-bike-1.jpeg',available:true},
+        {id:3,name:'Electric Bike',type:'E-Bike',price:150,image:'images/electric-22.jpeg',available:true},
+        {id:4,name:'Hybrid Bike',type:'Hybrid',price:100,image:'images/hybrid-d.jpeg',available:true}
     ];
     localStorage.setItem('bikes', JSON.stringify(sample));
 }
@@ -705,8 +705,3 @@ window.addEventListener('load', async ()=>{
 </script>
 </body>
 </html>
-
-      
-
-
-
