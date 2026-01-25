@@ -229,6 +229,9 @@
   </footer>
 
   <script>
+    // Backend API URL
+    const API_URL = 'http://localhost:3001/api';
+
     // Block access if not logged in
     if (!localStorage.getItem('currentUser')) {
       alert('Please login or register to access rental services.');
@@ -244,16 +247,31 @@
       window.location.href = 'rent.html';
     }
 
+    // Fetch bike from centralized backend
+    async function fetchBike(id) {
+      try {
+        const response = await fetch(`${API_URL}/bikes`);
+        if (!response.ok) throw new Error('Failed to fetch bikes');
+        const bikes = await response.json();
+        return bikes.find(b => b.id == id);
+      } catch (error) {
+        console.error('Error fetching bike:', error);
+        return null;
+      }
+    }
+
     // Load bike details and populate checkout
-    function loadCheckout() {
-      const bikes = JSON.parse(localStorage.getItem('bikes') || '[]');
-      const bike = bikes.find(b => b.id == bikeId);
+    async function loadCheckout() {
+      const bike = await fetchBike(bikeId);
 
       if (!bike) {
         alert('Bike not found. Redirecting...');
         window.location.href = 'rent.html';
         return;
       }
+
+      // Store bike globally for use in updateCheckoutTotal
+      window.currentBike = bike;
 
       const currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
 
@@ -284,10 +302,10 @@
     }
 
     function updateCheckoutTotal() {
-      const bikes = JSON.parse(localStorage.getItem('bikes') || '[]');
-      const bike = bikes.find(b => b.id == bikeId);
       const hours = Number(document.getElementById('rentHours').value) || 1;
-      const total = bike.price * hours;
+      // Price stored from bike details
+      const bikePrice = window.currentBike?.price || 50;
+      const total = bikePrice * hours;
       document.getElementById('checkoutTotal').textContent = total.toLocaleString();
     }
 
@@ -352,7 +370,7 @@
         const txId = 'TXN' + Math.floor(Math.random() * 900000 + 100000);
         const rentalId = 'RNT' + Date.now();
 
-        // Save rental
+        // Save rental to localStorage (user-specific)
         const rentals = JSON.parse(localStorage.getItem('rentals') || '[]');
         const startDate = new Date();
         const endDate = new Date(startDate.getTime() + hours * 3600000);
@@ -374,13 +392,8 @@
         });
         localStorage.setItem('rentals', JSON.stringify(rentals));
 
-        // Update bike availability
-        const bikes = JSON.parse(localStorage.getItem('bikes') || '[]');
-        const idx = bikes.findIndex(b => b.id == bike.id);
-        if (idx > -1) {
-          bikes[idx].available = false;
-          localStorage.setItem('bikes', JSON.stringify(bikes));
-        }
+        // Update bike availability on backend
+        updateBikeAvailability(bike.id, false);
 
         // Update user rentals count
         const user = JSON.parse(localStorage.getItem('currentUser') || 'null');
@@ -393,6 +406,20 @@
 
         setTimeout(() => window.location.href = 'index.html', 3000);
       }, 1200);
+    }
+
+    // Update bike availability on centralized backend
+    async function updateBikeAvailability(bikeId, available) {
+      try {
+        const response = await fetch(`${API_URL}/bikes/${bikeId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ available })
+        });
+        if (!response.ok) console.warn('Failed to update bike availability');
+      } catch (error) {
+        console.error('Error updating bike:', error);
+      }
     }
 
     // Load checkout on page load
