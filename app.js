@@ -1,3 +1,4 @@
+
 (function () {
   'use strict';
 
@@ -534,6 +535,15 @@
           </form>
         `;
 
+        // Show rental section and scroll to it
+        const rentalSection = q('rental');
+        if (rentalSection) {
+          rentalSection.style.display = 'block';
+          setTimeout(() => {
+            rentalSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 100);
+        }
+
         window.updateRentalTotal = () => {
           const hours = Number(q('rentHours').value) || 1;
           const total = bike.price * hours;
@@ -814,5 +824,4 @@
     replyToMessage
   };
 
-})();
 
