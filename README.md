@@ -360,4 +360,3 @@ For issues or questions:
 5. Run: `node backend/validate.js`
 
 **System ready to use!** 🚀
-
