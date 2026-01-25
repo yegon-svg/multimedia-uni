@@ -1,4 +1,3 @@
-
 (function () {
   'use strict';
 
@@ -482,167 +481,8 @@
         return;
       }
 
-      if (rentalDetailsEl) {
-        rentalDetailsEl.innerHTML = `
-          <div style="display:flex;gap:14px;align-items:center;padding:16px;background:#f8fafc;border-radius:10px">
-            <img src="${bike.image}" alt="${escapeHtml(bike.name)}" style="width:120px;height:100px;object-fit:cover;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
-            <div>
-              <h3 style="margin:0 0 4px 0">${escapeHtml(bike.name)}</h3>
-              <p class="small" style="margin:0 0 8px 0">${escapeHtml(bike.type)} • ${escapeHtml(bike.description || '')}</p>
-              <p style="margin:0"><strong>💰 Price:</strong> KES ${bike.price.toLocaleString()} / hour</p>
-            </div>
-          </div>
-        `;
-      }
-
-      if (checkoutFormEl) {
-        checkoutFormEl.innerHTML = `
-          <form id="rentForm">
-            <div class="form-group">
-              <label>👤 Renter</label>
-              <input type="text" value="${escapeHtml(currentUser.fullname)}" readonly>
-            </div>
-            <div class="form-group">
-              <label>⏰ Rental Hours</label>
-              <input type="number" id="rentHours" value="1" min="1" max="24" required onchange="updateRentalTotal()">
-            </div>
-            <div class="form-group">
-              <label>🏷️ Registration Number</label>
-              <input type="text" id="regNumber" placeholder="000-000-000/0000" required>
-            </div>
-            <div style="background:#f0f9ff;padding:12px;border-radius:6px;margin-bottom:14px">
-              <p style="margin:0">Total: <strong>KES <span id="rentalTotal">${bike.price.toLocaleString()}</span></strong></p>
-            </div>
-            <div class="form-group">
-              <label>📞 Mobile Provider</label>
-              <select id="rentProvider" required>
-                <option value="">Select Provider</option>
-                <option> safaricom</option>
-                <option> Airtel</option>
-                <option> T-Kash</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>📱 Mobile Number</label>
-              <input id="rentMobile" type="tel" placeholder="0712345678" pattern="^[0-9]{10}$" required>
-            </div>
-            <div class="form-group">
-              <label>🔒 Mobile PIN</label>
-              <input id="rentPin" type="password" maxlength="6" placeholder="Your PIN" pattern="^[0-9]{4,6}$" required>
-            </div>
-            <button class="btn btn-primary" type="submit" style="width:100%">✅ Confirm & Pay</button>
-            <div id="rentMessage" style="margin-top:10px;padding:10px;border-radius:6px;display:none;"></div>
-          </form>
-        `;
-
-        // Show rental section and scroll to it
-        const rentalSection = q('rental');
-        if (rentalSection) {
-          rentalSection.style.display = 'block';
-          setTimeout(() => {
-            rentalSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          }, 100);
-        }
-
-        window.updateRentalTotal = () => {
-          const hours = Number(q('rentHours').value) || 1;
-          const total = bike.price * hours;
-          q('rentalTotal').textContent = total.toLocaleString();
-        };
-
-        const formEl = q('rentForm');
-        if (!formEl) return;
-        formEl.addEventListener('submit', (ev) => {
-          ev.preventDefault();
-          const hours = Number(q('rentHours').value) || 1;
-          const provider = q('rentProvider').value;
-          const mobile = q('rentMobile').value.trim();
-          const pin = q('rentPin').value.trim();
-          const regNumber = q('regNumber').value.trim();
-          const rentMessage = q('rentMessage');
-
-          const regNumberNorm = (regNumber || '').toUpperCase();
-          const regRegex = /^[A-Z]{3}-\d{3}-\d{3}\/\d{4}$/;
-          if (!regNumber || !regRegex.test(regNumberNorm)) {
-            rentMessage.style.display = 'block';
-            rentMessage.style.background = '#fee2e2';
-            rentMessage.style.color = '#991b1b';
-            rentMessage.textContent = '❌ Registration number must match format e.g. ENG-219-036/2025';
-            return;
-          }
-
-          if (!provider) {
-            rentMessage.style.display = 'block';
-            rentMessage.style.background = '#fee2e2';
-            rentMessage.style.color = '#991b1b';
-            rentMessage.textContent = '❌ Please select a provider';
-            return;
-          }
-
-          if (!/^\d{10}$/.test(mobile.replace(/\D/g, ''))) {
-            rentMessage.style.display = 'block';
-            rentMessage.style.background = '#fee2e2';
-            rentMessage.style.color = '#991b1b';
-            rentMessage.textContent = '❌ Invalid mobile number';
-            return;
-          }
-
-          if (!/^\d{4,6}$/.test(pin)) {
-            rentMessage.style.display = 'block';
-            rentMessage.style.background = '#fee2e2';
-            rentMessage.style.color = '#991b1b';
-            rentMessage.textContent = '❌ PIN must be 4-6 digits';
-            return;
-          }
-
-          const amount = bike.price * hours;
-          rentMessage.style.display = 'block';
-          rentMessage.style.background = '#0766e1ff';
-          rentMessage.style.color = '#1e40af';
-          rentMessage.textContent = '⏳ Processing payment...';
-
-          processMobilePayment(provider, mobile, pin, amount, getCurrentUser().email)
-            .then(tx => {
-              const startDate = new Date();
-              const endDate = new Date(startDate.getTime() + hours * 3600000);
-              const rental = saveRental({
-                userName: getCurrentUser().fullname,
-                userEmail: getCurrentUser().email,
-                regNumber: regNumberNorm,
-                bikeId: bike.id,
-                bikeName: bike.name,
-                hours,
-                startDate: startDate.toISOString(),
-                endDate: endDate.toISOString(),
-                provider,
-                mobile,
-                paid: true,
-                transactionId: tx.id
-              });
-
-              const bikes = getBikes();
-              const idx = bikes.findIndex(b => b.id === bike.id);
-              if (idx > -1) { bikes[idx].available = false; setBikes(bikes); }
-
-              const user = getCurrentUser();
-              user.rentals = (user.rentals || 0) + 1;
-              setCurrentUser(user);
-              updateUserInList({ ...user, rentals: user.rentals });
-
-              rentMessage.style.background = '#dcfce7';
-              rentMessage.style.color = '#470fcbff';
-              rentMessage.innerHTML = `✅ Payment successful!<br>Tx: <strong>${tx.id}</strong><br>Rental: <strong>${rental.id}</strong><br>Duration: <strong>${hours} hour(s)</strong>`;
-              renderBikes();
-
-              setTimeout(() => window.location.href = 'index.html', 3000);
-            })
-            .catch(err => {
-              rentMessage.style.background = '#fee2e2';
-              rentMessage.style.color = '#991b1b';
-              rentMessage.textContent = '❌ ' + (err.message || 'Payment failed');
-            });
-        });
-      }
+      // Redirect to checkout page with bike ID
+      window.location.href = `checkout.html?bikeId=${bike.id}`;
     }
 
     renderBikes();
@@ -824,4 +664,5 @@
     replyToMessage
   };
 
+})();
 
