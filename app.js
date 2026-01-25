@@ -46,18 +46,20 @@
 
   function signupUser({ fullname, email, password, phone }) {
     const users = storage.get('users', []);
+    const normalizedEmail = (email||'').toString().trim().toLowerCase();
     if (!fullname || fullname.length < 3) throw new Error('Full name must be at least 3 characters');
-    if (!validateEmail(email)) throw new Error('Invalid email format');
+    if (!validateEmail(normalizedEmail)) throw new Error('Invalid email format');
     if (password.length < 6) throw new Error('Password must be at least 6 characters');
-    if (!validatePhone(phone)) throw new Error('Invalid phone format (use format: 0712345678)');
-    if (users.find(u => u.email === email)) throw new Error('Email already registered');
+    // phone is optional; validate only if provided
+    if (phone && !validatePhone(phone)) throw new Error('Invalid phone format (use format: 0712345678)');
+    if (users.find(u => (u.email||'').toString().trim().toLowerCase() === normalizedEmail)) throw new Error('Email already registered');
 
     const user = {
       id: Date.now(),
       fullname,
-      email,
+      email: normalizedEmail,
       password: btoa(password),
-      phone,
+      phone: phone || '',
       profilePhoto: null,
       createdAt: new Date().toISOString(),
       rentals: 0
@@ -70,8 +72,15 @@
 
   function loginUser({ email, password }) {
     const users = storage.get('users', []);
-    const u = users.find(x => x.email === email);
-    if (!u || atob(u.password) !== password) throw new Error('Invalid email or password');
+    const normalizedEmail = (email||'').toString().trim().toLowerCase();
+    const u = users.find(x => (x.email||'').toString().trim().toLowerCase() === normalizedEmail);
+    if (!u) throw new Error('Invalid email or password');
+
+    // Support both base64-encoded passwords and plain stored passwords
+    let storedPassword;
+    try { storedPassword = atob(u.password); } catch (err) { storedPassword = u.password; }
+    if (storedPassword !== password) throw new Error('Invalid email or password');
+
     setCurrentUser({ id: u.id, fullname: u.fullname, email: u.email, phone: u.phone, profilePhoto: u.profilePhoto, rentals: u.rentals || 0 });
     return u;
   }
@@ -85,6 +94,8 @@
 
   function registerAdmin(email, password) {
     const admins = getAdmins();
+    // Enforce maximum of two admins
+    if (admins && admins.length >= 2) throw new Error('Admin limit reached. Only two admins allowed.');
     if (!validateEmail(email)) throw new Error('Invalid email format');
     if (password.length < 6) throw new Error('Password must be at least 6 characters');
     if (admins.find(a => a.email === email)) throw new Error('Admin already exists');
@@ -466,158 +477,8 @@
         return;
       }
 
-      if (rentalDetailsEl) {
-        rentalDetailsEl.innerHTML = `
-          <div style="display:flex;gap:14px;align-items:center;padding:16px;background:#f8fafc;border-radius:10px">
-            <img src="${bike.image}" alt="${escapeHtml(bike.name)}" style="width:120px;height:100px;object-fit:cover;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1)">
-            <div>
-              <h3 style="margin:0 0 4px 0">${escapeHtml(bike.name)}</h3>
-              <p class="small" style="margin:0 0 8px 0">${escapeHtml(bike.type)} • ${escapeHtml(bike.description || '')}</p>
-              <p style="margin:0"><strong>💰 Price:</strong> KES ${bike.price.toLocaleString()} / hour</p>
-            </div>
-          </div>
-        `;
-      }
-
-      if (checkoutFormEl) {
-        checkoutFormEl.innerHTML = `
-          <form id="rentForm">
-            <div class="form-group">
-              <label>👤 Renter</label>
-              <input type="text" value="${escapeHtml(currentUser.fullname)}" readonly>
-            </div>
-            <div class="form-group">
-              <label>⏰ Rental Hours</label>
-              <input type="number" id="rentHours" value="1" min="1" max="24" required onchange="updateRentalTotal()">
-            </div>
-            <div class="form-group">
-              <label>🏷️ Registration Number</label>
-              <input type="text" id="regNumber" placeholder="000-000-000/0000" required>
-            </div>
-            <div style="background:#f0f9ff;padding:12px;border-radius:6px;margin-bottom:14px">
-              <p style="margin:0">Total: <strong>KES <span id="rentalTotal">${bike.price.toLocaleString()}</span></strong></p>
-            </div>
-            <div class="form-group">
-              <label>📞 Mobile Provider</label>
-              <select id="rentProvider" required>
-                <option value="">Select Provider</option>
-                <option> safaricom</option>
-                <option> Airtel</option>
-                <option> T-Kash</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>📱 Mobile Number</label>
-              <input id="rentMobile" type="tel" placeholder="0712345678" pattern="^[0-9]{10}$" required>
-            </div>
-            <div class="form-group">
-              <label>🔒 Mobile PIN</label>
-              <input id="rentPin" type="password" maxlength="6" placeholder="Your PIN" pattern="^[0-9]{4,6}$" required>
-            </div>
-            <button class="btn btn-primary" type="submit" style="width:100%">✅ Confirm & Pay</button>
-            <div id="rentMessage" style="margin-top:10px;padding:10px;border-radius:6px;display:none;"></div>
-          </form>
-        `;
-
-        window.updateRentalTotal = () => {
-          const hours = Number(q('rentHours').value) || 1;
-          const total = bike.price * hours;
-          q('rentalTotal').textContent = total.toLocaleString();
-        };
-
-        const formEl = q('rentForm');
-        if (!formEl) return;
-        formEl.addEventListener('submit', (ev) => {
-          ev.preventDefault();
-          const hours = Number(q('rentHours').value) || 1;
-          const provider = q('rentProvider').value;
-          const mobile = q('rentMobile').value.trim();
-          const pin = q('rentPin').value.trim();
-          const regNumber = q('regNumber').value.trim();
-          const rentMessage = q('rentMessage');
-
-          const regNumberNorm = (regNumber || '').toUpperCase();
-          const regRegex = /^[A-Z]{3}-\d{3}-\d{3}\/\d{4}$/;
-          if (!regNumber || !regRegex.test(regNumberNorm)) {
-            rentMessage.style.display = 'block';
-            rentMessage.style.background = '#fee2e2';
-            rentMessage.style.color = '#991b1b';
-            rentMessage.textContent = '❌ Registration number must match format e.g. ENG-219-036/2025';
-            return;
-          }
-
-          if (!provider) {
-            rentMessage.style.display = 'block';
-            rentMessage.style.background = '#fee2e2';
-            rentMessage.style.color = '#991b1b';
-            rentMessage.textContent = '❌ Please select a provider';
-            return;
-          }
-
-          if (!/^\d{10}$/.test(mobile.replace(/\D/g, ''))) {
-            rentMessage.style.display = 'block';
-            rentMessage.style.background = '#fee2e2';
-            rentMessage.style.color = '#991b1b';
-            rentMessage.textContent = '❌ Invalid mobile number';
-            return;
-          }
-
-          if (!/^\d{4,6}$/.test(pin)) {
-            rentMessage.style.display = 'block';
-            rentMessage.style.background = '#fee2e2';
-            rentMessage.style.color = '#991b1b';
-            rentMessage.textContent = '❌ PIN must be 4-6 digits';
-            return;
-          }
-
-          const amount = bike.price * hours;
-          rentMessage.style.display = 'block';
-          rentMessage.style.background = '#0766e1ff';
-          rentMessage.style.color = '#1e40af';
-          rentMessage.textContent = '⏳ Processing payment...';
-
-          processMobilePayment(provider, mobile, pin, amount, getCurrentUser().email)
-            .then(tx => {
-              const startDate = new Date();
-              const endDate = new Date(startDate.getTime() + hours * 3600000);
-              const rental = saveRental({
-                userName: getCurrentUser().fullname,
-                userEmail: getCurrentUser().email,
-                regNumber: regNumberNorm,
-                bikeId: bike.id,
-                bikeName: bike.name,
-                hours,
-                startDate: startDate.toISOString(),
-                endDate: endDate.toISOString(),
-                provider,
-                mobile,
-                paid: true,
-                transactionId: tx.id
-              });
-
-              const bikes = getBikes();
-              const idx = bikes.findIndex(b => b.id === bike.id);
-              if (idx > -1) { bikes[idx].available = false; setBikes(bikes); }
-
-              const user = getCurrentUser();
-              user.rentals = (user.rentals || 0) + 1;
-              setCurrentUser(user);
-              updateUserInList({ ...user, rentals: user.rentals });
-
-              rentMessage.style.background = '#dcfce7';
-              rentMessage.style.color = '#470fcbff';
-              rentMessage.innerHTML = `✅ Payment successful!<br>Tx: <strong>${tx.id}</strong><br>Rental: <strong>${rental.id}</strong><br>Duration: <strong>${hours} hour(s)</strong>`;
-              renderBikes();
-
-              setTimeout(() => window.location.href = 'index.html', 3000);
-            })
-            .catch(err => {
-              rentMessage.style.background = '#fee2e2';
-              rentMessage.style.color = '#991b1b';
-              rentMessage.textContent = '❌ ' + (err.message || 'Payment failed');
-            });
-        });
-      }
+      // Redirect to checkout page with bike ID
+      window.location.href = `checkout.html?bikeId=${bike.id}`;
     }
 
     renderBikes();
@@ -634,10 +495,31 @@
         e.preventDefault();
         try {
           const fullname = q('signupName').value.trim();
-          const email = q('signupEmail').value.trim();
+          const email = (q('signupEmail').value || '').trim().toLowerCase();
           const pw = q('signupPassword').value;
           const phone = q('signupPhone') ? q('signupPhone').value.trim() : '';
-          signupUser({ fullname, email, password: pw, phone });
+
+          // create user
+          const user = signupUser({ fullname, email, password: pw, phone });
+
+          // If there are fewer than 2 admins and this user is among the first two registered users, offer admin registration
+          const admins = getAdmins();
+          const users = storage.get('users', []);
+          if ((admins.length < 2) && (users.length <= 2)) {
+            if (confirm('You are among the first two registered users. Would you like to register as an admin now?')) {
+              try {
+                registerAdmin(email, pw);
+                const admin = getAdmins().find(a => a.email === email);
+                if (admin) setCurrentAdmin({ id: admin.id, email: admin.email });
+                showNotificationBar('✅ Admin account created! Redirecting to admin portal...', 'success');
+                setTimeout(() => window.location.href = 'admin.html', 1200);
+                return;
+              } catch (err) {
+                showNotificationBar('❌ Admin registration failed: ' + err.message, 'error', 3500);
+              }
+            }
+          }
+
           showNotificationBar('✅ Account created! Redirecting...', 'success');
           setTimeout(() => window.location.href = 'index.html', 1500);
         } catch (err) {
@@ -702,15 +584,23 @@
     const logoutBtn = q('logoutBtn');
     if (logoutBtn) {
       logoutBtn.addEventListener('click', () => {
+        // Prefer global logout if defined to keep behavior consistent
+        if (typeof logout === 'function') { logout(); return; }
         clearCurrentUser();
         updateUserUIIndex();
         showNotificationBar('✅ Logged out successfully', 'success');
-        setTimeout(() => location.href = 'index.html', 600);
+        setTimeout(() => location.href = 'login.html', 600);
       });
     }
     wireProfileControls();
     updateUserUIIndex();
   }
+
+  // Refresh index UI when a logout occurs elsewhere (e.g., auth.js)
+  window.addEventListener('user:logout', () => {
+    clearCurrentUser();
+    updateUserUIIndex();
+  });
 
   function wireProfileControls() {
     wireProfilePhotoUpload();
