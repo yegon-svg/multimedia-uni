@@ -646,8 +646,7 @@
             <ul>
                 <li><a href="index.html">Home</a></li>
                 <li id="rentNav" style="display:none;"><a href="rent.html">Rent</a></li>
-                
-            
+                <li><a href="admin.html">Admin</a></li>
             </ul>
             <div class="nav-buttons">
                 <button class="dark-mode-toggle" onclick="toggleDarkMode()">🌙</button>
@@ -672,6 +671,7 @@
             <div class="hero-buttons">
                 <button class="btn btn-primary" onclick="location.href='rent.html'">Browse Bikes</button>
                 <button class="btn btn-secondary" onclick="location.href='signup.html'">Create Account</button>
+                <button class="btn btn-secondary" onclick="location.href='admin.html'">Admin Portal</button>
             </div>
         </section>
 
@@ -714,7 +714,7 @@
             <source src="customer.mp4" type="video/mp4">
             <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap">
                 <video id="featuredVideo" muted loop playsinline poster="electric-1.jpeg"
-                       style="width:220px;height:150px;object-fit:cover;border-radius:10px;box-shadow:0 8px 20px rgba(91,11,229,0.1);">
+                        style="width:220px;height:150px;object-fit:cover;border-radius:10px;box-shadow:0 8px 20px rgba(91,11,229,0.1);">
                     <source src="customer.mp4" type="video/mp4">
                     
                 </video>
@@ -730,67 +730,64 @@
                 </div>
             </div>
         </section>
- 
 
+        <script>
+            // ...existing code...
 
-    <script>
-        // ...existing code...
+            // Featured video controls (start / stop / mute)
+            (function () {
+                function $id(id) { return document.getElementById(id); }
+                document.addEventListener('DOMContentLoaded', () => {
+                    const vid = $id('featuredVideo');
+                    const startBtn = $id('videoStart');
+                    const stopBtn = $id('videoStop');
+                    const muteBtn = $id('videoMute');
 
-        // Featured video controls (start / stop / mute)
-        (function () {
-            function $id(id) { return document.getElementById(id); }
-            document.addEventListener('DOMContentLoaded', () => {
-                const vid = $id('featuredVideo');
-                const startBtn = $id('videoStart');
-                const stopBtn = $id('videoStop');
-                const muteBtn = $id('videoMute');
+                    if (!vid || !startBtn || !stopBtn || !muteBtn) return;
 
-                if (!vid || !startBtn || !stopBtn || !muteBtn) return;
-
-                // Initial state: paused, muted (video element has muted attribute)
-                vid.pause();
-                vid.currentTime = 0;
-                startBtn.disabled = false;
-                stopBtn.disabled = true;
-
-                startBtn.addEventListener('click', async () => {
-                    try {
-                        await vid.play();
-                        startBtn.disabled = true;
-                        stopBtn.disabled = false;
-                    } catch (err) {
-                        // Autoplay or play blocked — try unmuting for browsers that require user gesture
-                        console.warn('Video play failed:', err);
-                    }
-                });
-
-                stopBtn.addEventListener('click', () => {
+                    // Initial state: paused, muted (video element has muted attribute)
                     vid.pause();
                     vid.currentTime = 0;
                     startBtn.disabled = false;
                     stopBtn.disabled = true;
-                });
 
-                muteBtn.addEventListener('click', () => {
-                    vid.muted = !vid.muted;
-                    muteBtn.textContent = vid.muted ? '🔇' : '🔊';
-                });
+                    startBtn.addEventListener('click', async () => {
+                        try {
+                            await vid.play();
+                            startBtn.disabled = true;
+                            stopBtn.disabled = false;
+                        } catch (err) {
+                            // Autoplay or play blocked — try unmuting for browsers that require user gesture
+                            console.warn('Video play failed:', err);
+                        }
+                    });
 
-                // If user interacts with video itself, keep buttons in sync
-                vid.addEventListener('play', () => {
-                    startBtn.disabled = true;
-                    stopBtn.disabled = false;
-                });
-                vid.addEventListener('pause', () => {
-                    startBtn.disabled = false;
-                    stopBtn.disabled = true;
-                });
-            });
-        })();
+                    stopBtn.addEventListener('click', () => {
+                        vid.pause();
+                        vid.currentTime = 0;
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                    });
 
-        // ...existing code...
-    </script>
+                    muteBtn.addEventListener('click', () => {
+                        vid.muted = !vid.muted;
+                        muteBtn.textContent = vid.muted ? '🔇' : '🔊';
+                    });
 
+                    // If user interacts with video itself, keep buttons in sync
+                    vid.addEventListener('play', () => {
+                        startBtn.disabled = true;
+                        stopBtn.disabled = false;
+                    });
+                    vid.addEventListener('pause', () => {
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                    });
+                });
+            })();
+
+            // ...existing code...
+        </script>
 
         <!-- Statistics -->
         <div class="stats-card">
@@ -998,69 +995,55 @@
             if (name === null) return;
             if (!name.trim()) return showNotification('❌ Name cannot be empty', 'error');
             
-            const phone = prompt('Edit your phone (format: 0712345678):', u.phone || '');
+            const phone = prompt('Edit your phone:', u.phone || '');
             if (phone === null) return;
             
-            u.fullname = name;
-            u.phone = phone;
+            u.fullname = name.trim();
+            u.phone = phone.trim();
             setCurrentUser(u);
-            try {
-                const users = JSON.parse(localStorage.getItem('users') || '[]');
-                const idx = users.findIndex(x => x.email === u.email);
-                if (idx > -1) { users[idx] = u; localStorage.setItem('users', JSON.stringify(users)); }
-            } catch {}
+
+            const users = JSON.parse(localStorage.getItem('users') || '[]');
+            const idx = users.findIndex(x => x.email === u.email);
+            if (idx > -1) {
+                users[idx].fullname = u.fullname;
+                users[idx].phone = u.phone;
+                localStorage.setItem('users', JSON.stringify(users));
+            }
+
             updateUserUI();
             showNotification('✅ Profile updated successfully!', 'success');
         };
 
-        // Search
-        window.searchBikes = () => {
-            const q = document.getElementById('bikeSearch').value.toLowerCase();
-            const noResults = !q || q.length < 2;
-            document.querySelectorAll('.bike-card').forEach(card => {
-                if (noResults) {
-                    card.style.opacity = '1';
-                    return;
-                }
-                const alt = card.querySelector('img').alt.toLowerCase();
-                card.style.opacity = alt.includes(q) ? '1' : '0.3';
-            });
-        };
-
-        // Contact form
-        document.getElementById('contactForm').addEventListener('submit', (e) => {
+        document.getElementById('logoutBtn')?.addEventListener('click', logout);
+        document.getElementById('contactForm')?.addEventListener('submit', (e) => {
             e.preventDefault();
-            const msgs = JSON.parse(localStorage.getItem('messages') || '[]');
-            msgs.unshift({
-                id: Date.now(),
-                name: e.target.name.value,
-                email: e.target.email.value,
-                message: e.target.message.value,
-                created: new Date().toISOString()
-            });
-            localStorage.setItem('messages', JSON.stringify(msgs));
-            document.getElementById('contactMsg').textContent = '✅ Message sent! We\'ll reply soon.';
-            e.target.reset();
-            setTimeout(() => document.getElementById('contactMsg').textContent = '', 3000);
+            const form = e.target;
+            const name = form.name.value.trim();
+            const email = form.email.value.trim();
+            const message = form.message.value.trim();
+            const msgBox = document.getElementById('contactMsg');
+            if (!name || !email || !message) {
+                msgBox.textContent = 'Please fill in all fields.';
+                msgBox.style.color = '#ef4444';
+                return;
+            }
+            msgBox.textContent = '✅ Message sent successfully. We will get back to you soon.';
+            msgBox.style.color = '#10b981';
+            form.reset();
         });
 
-        // Dark mode
         function toggleDarkMode() {
             document.body.classList.toggle('dark-mode');
-            localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
-        }
-        if (localStorage.getItem('darkMode') === 'true') document.body.classList.add('dark-mode');
-
-        // Logout button handler
-        const logoutBtn = document.getElementById('logoutBtn');
-        if (logoutBtn) {
-            logoutBtn.addEventListener('click', logout);
         }
 
-        // Init
-        updateUserUI();
-        const u = getCurrentUser();
-        if (u) showNotification(`👋 Welcome back, ${escapeHtml(u.fullname || u.email)}!`, 'success');
+        function searchBikes() {
+            const q = document.getElementById('bikeSearch').value.trim().toLowerCase();
+            if (!q) {
+                showNotification('Please enter a search term.', 'info');
+                return;
+            }
+            showNotification('Searching for: ' + q, 'info');
+        }
     </script>
 </body>
 </html>
